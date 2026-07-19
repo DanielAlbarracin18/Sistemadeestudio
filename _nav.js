@@ -1,41 +1,49 @@
-// Cordova/Browser navigation helper
-// Replaces history.back() with a stack-based navigator
+// Cordova/Browser navigation helper — jerarquía fija por página
+// Jerarquía: index.html → clases.html → tematizacion.html → contenido/glosario/etc
 (function(){
-  // Build history stack from sessionStorage
-  window.__navStack = JSON.parse(sessionStorage.getItem('__navStack') || '[]');
+  // Mapa de "desde qué página vengo" según la página actual
+  var PARENT_MAP = {
+    'clases.html':       'index.html',
+    'tematizacion.html': 'clases.html',
+    // páginas de contenido vuelven a tematizacion
+    'contenido.html':    'tematizacion.html',
+    'glosario.html':     'tematizacion.html',
+    'cuestionario.html': 'tematizacion.html',
+    'estudio.html':      'tematizacion.html',
+    'dominio.html':      'tematizacion.html',
+    'practica.html':     'clases.html',
+    'PruebaMix.html':    'tematizacion.html',
+  };
 
   window.navBack = function() {
-    var stack = window.__navStack;
-    if (stack.length > 1) {
-      stack.pop(); // remove current
-      var prev = stack[stack.length - 1];
-      sessionStorage.setItem('__navStack', JSON.stringify(stack));
-      window.location.replace(prev);
+    var cur = window.location.pathname.split('/').pop().split('?')[0];
+    var parent = PARENT_MAP[cur];
+
+    if (parent) {
+      // Reconstruir la URL del padre con los parámetros relevantes
+      var params = new URLSearchParams(window.location.search);
+      var sId = params.get('s');
+      var cId = params.get('c');
+
+      var dest = parent;
+      if (parent === 'clases.html' && sId)       dest = 'clases.html?s=' + sId;
+      if (parent === 'tematizacion.html' && sId && cId) dest = 'tematizacion.html?s=' + sId + '&c=' + cId;
+      if (parent === 'index.html')                dest = 'index.html';
+
+      window.location.replace(dest);
     } else {
-      // Already at root — go to index.html
+      // Raíz — limpiar y volver al inicio
       sessionStorage.removeItem('__navStack');
       window.location.replace('index.html');
     }
   };
 
+  // navTo sigue funcionando para ir hacia adelante
   window.navTo = function(url) {
-    var stack = window.__navStack;
-    // Avoid duplicate consecutive entries
-    if (!stack.length || stack[stack.length-1] !== url) {
-      stack.push(url);
-    }
-    sessionStorage.setItem('__navStack', JSON.stringify(stack));
     window.location.href = url;
   };
 
-  // Register current page on load
-  (function(){
-    var cur = window.location.href.split('/').pop().split('?')[0] + (window.location.search||'');
-    var stack = window.__navStack;
-    if (!stack.length || stack[stack.length-1] !== cur) {
-      // Only push if it's a new page (not a reload)
-      stack.push(cur);
-      sessionStorage.setItem('__navStack', JSON.stringify(stack));
-    }
-  })();
+  // Limpiar stack legacy (ya no lo usamos)
+  window.__navStack = [];
+  sessionStorage.removeItem('__navStack');
 })();

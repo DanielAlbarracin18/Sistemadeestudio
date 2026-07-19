@@ -660,6 +660,79 @@ function genQuestions(data, tipo) {
 }
 
 /* =================================
+   IDENTIDAD CRUZADA (usa TODOS los contenidos cargados)
+   - "¿A qué clase pertenece este título?"            -> opciones = clases
+   - "¿A qué título corresponde este fragmento/cita?" -> opciones = títulos
+   ===============================═ */
+function extractSnippet(src) {
+  const d = src.data, tipo = src.tipo;
+  if (tipo === 'matutina') {
+    const v = d.versiculo || {};
+    if (hasVal(v.texto)) return { icon:'📖', label:'este versículo', text: v.texto.length>130 ? v.texto.slice(0,130)+'…' : v.texto };
+    if (hasVal(d.leccion_central)) return { icon:'✦', label:'esta idea central', text: d.leccion_central };
+  }
+  if (tipo === 'leccion') {
+    const lec = d.formato_rompecabezas_leccion || {};
+    const piezas = lec.piezas_diarias || {};
+    const diasK = Object.keys(piezas).filter(k => k.startsWith('dia_'));
+    for (const dk of diasK) { if (hasVal(piezas[dk]?.pieza)) return { icon:'🧩', label:'esta pieza diaria', text: piezas[dk].pieza }; }
+    if (hasVal(lec.pregunta_inicial?.texto)) return { icon:'❓', label:'esta pregunta inicial', text: lec.pregunta_inicial.texto };
+  }
+  if (tipo === 'ensenanzas') {
+    const ens = (d.ensenanzas || []).find(e => hasVal(e.cita_textual)) || (d.ensenanzas || []).find(e => hasVal(e.enunciado));
+    if (ens) { const t = ens.cita_textual || ens.enunciado; return { icon:'🕊️', label: ens.cita_textual ? 'esta cita' : 'esta enseñanza', text: t.length>140 ? t.slice(0,140)+'…' : t }; }
+  }
+  if (tipo === 'narrativa_historica') {
+    const arcos = d.arcos || [];
+    for (const arc of arcos) for (const seq of (arc.secuencias || [])) for (const evt of (seq.eventos || [])) {
+      if (hasVal(evt.titulo)) return { icon:'📜', label:'este evento', text: evt.titulo };
+    }
+  }
+  if (tipo === 'procedimental') {
+    const paso = (d.estructura_procedimental || []).find(p => hasVal(p.nombre_del_paso));
+    if (paso) return { icon:'⚙️', label:'este paso', text: paso.nombre_del_paso };
+  }
+  if (tipo === 'prescriptivo') {
+    const est = d.estructura_normativa || {};
+    const item = (est.mandatos || []).find(m => hasVal(m.descripcion)) || (est.prohibiciones || []).find(m => hasVal(m.descripcion)) || (est.permisos || []).find(m => hasVal(m.descripcion));
+    if (item) return { icon:'⚖️', label:'esta disposición', text: item.descripcion };
+  }
+  const prob = d.definicion_del_problema || {};
+  if (hasVal(prob.pregunta_central)) return { icon:'❓', label:'esta pregunta central', text: prob.pregunta_central };
+  return null;
+}
+function genIdentityQuestions(sources) {
+  const qs = [];
+  if (sources.length < 3) return qs;
+
+  // 1) título del contenido -> clase a la que pertenece
+  const classNames = [...new Set(sources.map(s => s.className))];
+  if (classNames.length >= 2) {
+    [...sources].sort(() => Math.random() - 0.5).slice(0, 8).forEach(src => {
+      if (!hasVal(src.name)) return;
+      const wrongPool = classNames.filter(c => c !== src.className).sort(() => Math.random() - 0.5).slice(0, 3);
+      if (!wrongPool.length) return;
+      const opts = [src.className, ...wrongPool].sort(() => Math.random() - 0.5);
+      qs.push({ type:'choice', question:`🏷️ ¿A qué clase pertenece el contenido titulado "${src.name}"?`, options:opts, correct:src.className, explanation:`"${src.name}" pertenece a la clase "${src.className}".`, timeSec:18, _srcRef:src });
+    });
+  }
+
+  // 2) fragmento / versículo / cita -> título del contenido al que corresponde
+  const titlePool = [...new Set(sources.map(s => s.name).filter(hasVal))];
+  if (titlePool.length >= 4) {
+    [...sources].sort(() => Math.random() - 0.5).slice(0, 8).forEach(src => {
+      const snip = extractSnippet(src);
+      if (!snip || !hasVal(src.name)) return;
+      const wrongPool = titlePool.filter(t => t !== src.name).sort(() => Math.random() - 0.5).slice(0, 3);
+      if (wrongPool.length < 3) return;
+      const opts = [src.name, ...wrongPool].sort(() => Math.random() - 0.5);
+      qs.push({ type:'choice', question:`${snip.icon} ¿A qué título corresponde ${snip.label}?\n\n"${snip.text}"`, options:opts, correct:src.name, explanation:`Esto pertenece al contenido titulado "${src.name}" (${src.className}).`, timeSec:24, _srcRef:src });
+    });
+  }
+  return qs;
+}
+
+/* =================================
    CARGA DE CONTENIDOS Y MEZCLA
    ===============================═ */
 let _allSources = [];   // [{ id, classId, className, name, tipo, data, cfg }]
@@ -715,7 +788,8 @@ function activeSources() {
 }
 function buildMixQuestions() {
   const allQs = [];
-  activeSources().forEach((src, si) => {
+  const srcs = activeSources();
+  srcs.forEach((src, si) => {
     const qs = genQuestions(src.data, src.tipo);
     qs.forEach(q => allQs.push({
       ...q,
@@ -724,6 +798,17 @@ function buildMixQuestions() {
       _sourceTipo: src.tipo,
       _sourceCfg: src.cfg,
     }));
+  });
+  genIdentityQuestions(srcs).forEach(q => {
+    const src = q._srcRef;
+    delete q._srcRef;
+    allQs.push({
+      ...q,
+      _sourceIdx: srcs.indexOf(src),
+      _sourceName: `${src.className} - ${src.name}`,
+      _sourceTipo: src.tipo,
+      _sourceCfg: src.cfg,
+    });
   });
   for (let i = allQs.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -1174,6 +1259,3 @@ renderLanding();
 </script>
 </body>
 </html>
-
-
-

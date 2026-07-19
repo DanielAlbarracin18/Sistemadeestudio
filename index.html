@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Sistema de Estudio</title>
+<script src="vendor/qrcode.min.js"></script>
+<script src="vendor/jsQR.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f2f5; min-height: 100vh; color: #1a1a2e; }
@@ -85,6 +87,18 @@
   .unlock-fb { font-size:0.72rem; margin-top:0.3rem; min-height:1rem; }
   .unlock-fb.ok  { color:#166534; }
   .unlock-fb.err { color:#dc2626; }
+
+  /* ── QR: huella y lector de cámara ── */
+  .qr-toggle-btn, .scan-btn { width:100%; padding:0.4rem 0.6rem; margin-top:0.5rem; border-radius:8px; border:1.5px solid #c7d2fe; background:#eef2ff; color:#4338ca; font-size:0.75rem; font-weight:600; cursor:pointer; }
+  .qr-toggle-btn:hover, .scan-btn:hover { background:#e0e7ff; }
+  .qr-box { text-align:center; margin-top:0.6rem; padding:0.85rem; background:#fff; border:1.5px solid #e5e7eb; border-radius:10px; }
+  .qr-box > div { display:flex; justify-content:center; }
+  .qr-caption { font-size:0.68rem; color:#6b7280; margin-top:0.5rem; }
+  .scanner-box { margin-top:0.6rem; background:#0f172a; border-radius:10px; overflow:hidden; padding:0.6rem; }
+  .scanner-box video { width:100%; border-radius:8px; display:block; background:#000; }
+  .scanner-hint { font-size:0.72rem; color:#e2e8f0; text-align:center; margin-top:0.45rem; }
+  .scanner-cancel { width:100%; margin-top:0.5rem; padding:0.4rem; border-radius:8px; border:1px solid #475569; background:transparent; color:#cbd5e1; font-size:0.75rem; cursor:pointer; }
+  .scanner-cancel:hover { background:#1e293b; }
   .time-hint { font-size:0.72rem; color:#6b7280; margin-bottom:0.5rem; line-height:1.4; }
   .time-hint span { font-weight:600; color:#4f46e5; }
   .devcode-row { display:flex; gap:0.5rem; align-items:center; margin-bottom:0.6rem; }
@@ -107,6 +121,7 @@
   <div class="top-bar">
     <h2>Mis Asignaturas</h2>
     <div class="top-bar-actions">
+      <button class="btn btn-ghost btn-sm" onclick="navTo('usuarios.html')">👤 Usuarios</button>
       <button class="btn btn-ghost btn-sm" onclick="openImport()">📥 Importar</button>
       <button class="btn btn-primary" onclick="openNewSubject()">+ Nueva Asignatura</button>
     </div>
@@ -183,10 +198,15 @@
     <div class="unlock-bar" id="unlockBar">
       <div class="unlock-bar-title" id="unlockBarTitle">🔒 Función de pago</div>
       <div id="modeApp" style="display:none;">
-        <div class="time-hint">Copia tu código y envíalo al administrador para recibir tu clave.</div>
+        <div class="time-hint">Copia tu código y envíalo al administrador para recibir tu clave, o muéstrale el QR para que lo escanee.</div>
         <div class="devcode-row">
           <div class="devcode-box" id="devCodeDisplay">Calculando…</div>
           <button class="copy-devcode-btn" onclick="copyDevCode()">📋 Copiar</button>
+        </div>
+        <button type="button" class="qr-toggle-btn" onclick="qrToggleBox('fpQrBox','fpQrCanvas', _deviceFp)">🔲 Mostrar mi huella en QR</button>
+        <div class="qr-box" id="fpQrBox" style="display:none;">
+          <div id="fpQrCanvas"></div>
+          <div class="qr-caption">Muéstrale esto al administrador para que lo escanee con su cámara</div>
         </div>
       </div>
       <div id="modeBrowser" style="display:none;">
@@ -198,13 +218,19 @@
           <button class="unlock-btn" onclick="tryUnlock()">🔓 Activar</button>
         </div>
         <div class="unlock-fb" id="unlockFb"></div>
+        <button type="button" class="scan-btn" onclick="qrToggleScanner('keyScanBox','keyScanVideo','keyScanHint','unlockKeyInput', function(){ onUnlockInput(); })">📷 Escanear clave (QR)</button>
+        <div class="scanner-box" id="keyScanBox" style="display:none;">
+          <video id="keyScanVideo" autoplay playsinline muted></video>
+          <div class="scanner-hint" id="keyScanHint">Apunta la cámara al código QR de tu clave…</div>
+          <button type="button" class="scanner-cancel" onclick="qrStopScanner('keyScanBox')">Cancelar escaneo</button>
+        </div>
       </div>
       <div id="unlockActive" style="display:none; align-items:center; gap:0.4rem; font-size:0.82rem; color:#166534;">
         ✅ Funciones activas <span id="unlockActiveDetail"></span>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modalUnlockExport')">Cancelar</button>
+      <button class="btn btn-ghost" onclick="qrStopScanner('keyScanBox'); document.getElementById('fpQrBox').style.display='none'; closeModal('modalUnlockExport')">Cancelar</button>
     </div>
   </div>
 </div>
@@ -395,6 +421,82 @@ async function verifyOfficialSignature(payload) {
   } catch(e) { return false; }
 }
 
+// ════════ QR: mostrar huella como QR y leer claves con la cámara ════════
+const _qrScanState = {}; // boxId -> { stream, raf }
+
+function qrRenderText(text, holderId) {
+  const holder = document.getElementById(holderId);
+  if (!holder) return;
+  holder.innerHTML = '';
+  if (typeof QRCode === 'undefined' || !text) { holder.textContent = '⚠️ QR no disponible'; return; }
+  new QRCode(holder, {
+    text: text, width: 170, height: 170,
+    colorDark: '#1a1a2e', colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M
+  });
+}
+
+function qrToggleBox(boxId, holderId, text) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  const showing = box.style.display !== 'none';
+  box.style.display = showing ? 'none' : 'block';
+  if (!showing) qrRenderText(text, holderId);
+}
+
+async function qrToggleScanner(boxId, videoId, hintId, inputId, onFilled) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  if (box.style.display !== 'none') { qrStopScanner(boxId); return; }
+  box.style.display = 'block';
+  const hint = document.getElementById(hintId);
+  if (typeof jsQR === 'undefined') { if (hint) hint.textContent = '⚠️ Lector de QR no disponible'; return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  } catch (e) {
+    if (hint) hint.textContent = '⚠️ No se pudo acceder a la cámara';
+    return;
+  }
+  const video = document.getElementById(videoId);
+  video.srcObject = stream;
+  await video.play();
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  _qrScanState[boxId] = { stream, raf: null };
+  const tick = () => {
+    const st = _qrScanState[boxId];
+    if (!st) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imgData.data, imgData.width, imgData.height);
+      if (code && code.data) {
+        const val = code.data.trim().toUpperCase();
+        const input = document.getElementById(inputId);
+        if (input) input.value = val;
+        qrStopScanner(boxId);
+        if (typeof onFilled === 'function') onFilled(val);
+        return;
+      }
+    }
+    st.raf = requestAnimationFrame(tick);
+  };
+  _qrScanState[boxId].raf = requestAnimationFrame(tick);
+}
+
+function qrStopScanner(boxId) {
+  const st = _qrScanState[boxId];
+  if (st) {
+    if (st.raf) cancelAnimationFrame(st.raf);
+    if (st.stream) st.stream.getTracks().forEach(t => t.stop());
+    delete _qrScanState[boxId];
+  }
+  const box = document.getElementById(boxId);
+  if (box) box.style.display = 'none';
+}
+
 function isApp() {
   return !!(window.cordova || window.PhoneGap || window.phonegap ||
             (typeof window.device !== 'undefined') ||
@@ -526,6 +628,8 @@ async function initDevUnlock() {
   if (!_deviceFp) _deviceFp = await getDeviceFingerprint();
   const el = document.getElementById('devCodeDisplay');
   if (el) el.textContent = _deviceFp;
+  const fpBox = document.getElementById('fpQrBox');
+  if (fpBox && fpBox.style.display !== 'none') qrRenderText(_deviceFp, 'fpQrCanvas');
   if (localStorage.getItem('study_devkey_unlock_import') === _deviceFp) _unlockedImport = true;
   if (localStorage.getItem('study_devkey_unlock_export') === _deviceFp) _unlockedExport = true;
   // Compatibilidad hacia atras: si en una sesion anterior se guardo en sessionStorage
