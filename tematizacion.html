@@ -176,6 +176,20 @@
   .devcode-box { flex:1; background:#f1f5f9; border:1.5px solid #cbd5e1; border-radius:8px; padding:0.4rem 0.65rem; font-family:'Courier New',monospace; font-size:0.63rem; color:#1e293b; word-break:break-all; line-height:1.5; }
   .copy-devcode-btn { font-size:0.72rem; padding:0.25rem 0.6rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff; color:#475569; cursor:pointer; white-space:nowrap; }
   .copy-devcode-btn:hover { background:#f1f5f9; }
+
+  /* ── Barra de lectura (TTS) ── */
+  .tts-bar { display:none; align-items:center; justify-content:space-between; gap:1rem; background:#1a1a2e; color:#fff; padding:0.65rem 1.5rem; position:sticky; top:0; z-index:50; box-shadow:0 2px 10px rgba(0,0,0,0.15); }
+  .tts-bar.show { display:flex; }
+  .tts-info { display:flex; align-items:center; gap:0.75rem; min-width:0; }
+  .tts-pulse { font-size:1.3rem; animation: ttsPulse 1.2s ease-in-out infinite; flex-shrink:0; }
+  @keyframes ttsPulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.55; transform:scale(0.92); } }
+  .tts-title { font-size:0.88rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60vw; }
+  .tts-sub { font-size:0.74rem; color:#a5b4fc; margin-top:0.1rem; }
+  .tts-controls { display:flex; gap:0.5rem; flex-shrink:0; }
+  .tts-controls .btn-ghost { color:#fff; border-color:rgba(255,255,255,0.35); }
+  .tts-controls .btn-ghost:hover { background:rgba(255,255,255,0.12); }
+  .tts-controls .btn-danger-ghost { color:#fca5a5; border-color:rgba(252,165,165,0.5); }
+  .tts-controls .btn-danger-ghost:hover { background:rgba(220,38,38,0.15); }
 </style>
   <script src="_nav.js"></script>
   <script src="cordova.js" onerror="void 0"></script>
@@ -189,8 +203,40 @@
     <h1 id="headerSubject">Asignatura</h1>
     <h2 id="headerClass">Clase</h2>
   </div>
+  <button id="btnListenClass" onclick="toggleListenClass()" style="background:transparent;border:1.5px solid rgba(255,255,255,0.4);color:#fff;border-radius:8px;padding:0.35rem 0.8rem;font-size:0.82rem;font-weight:500;cursor:pointer;">🔊 Escuchar clase</button>
   <button onclick="exportClass()" style="background:transparent;border:1.5px solid rgba(255,255,255,0.4);color:#fff;border-radius:8px;padding:0.35rem 0.8rem;font-size:0.82rem;font-weight:500;cursor:pointer;">📤 Exportar</button>
 </header>
+
+<div class="tts-bar" id="ttsBar">
+  <div class="tts-info">
+    <span class="tts-pulse" id="ttsPulse">🔊</span>
+    <div>
+      <div class="tts-title" id="ttsStatusTitle">Preparando lectura…</div>
+      <div class="tts-sub" id="ttsStatusSub"></div>
+    </div>
+  </div>
+  <div class="tts-controls">
+    <button class="btn btn-sm btn-ghost" id="ttsRateBtn" onclick="cycleTtsRate()" title="Cambiar velocidad de lectura">1×</button>
+    <button class="btn btn-sm btn-ghost" id="ttsPauseBtn" onclick="pauseResumeListen()">⏸️ Pausar</button>
+    <button class="btn btn-sm btn-danger-ghost" onclick="stopListenClass()">⏹️ Detener</button>
+  </div>
+</div>
+
+<!-- Selector de la fuente de lectura -->
+<div class="modal-overlay" id="modalListenSelector">
+  <div class="modal" style="max-width:440px; margin-top:8vh;">
+    <div class="modal-header">
+      <h3>🔊 ¿Qué quieres escuchar?</h3>
+      <button class="modal-close" onclick="closeModal('modalListenSelector')">×</button>
+    </div>
+    <div style="padding:1.25rem; display:grid; gap:0.7rem;">
+      <button class="btn btn-primary" onclick="startListenClass('todo')">🔊 Toda la clase</button>
+      <button class="btn btn-ghost" onclick="startListenClass('contenido')">📄 Solo contenidos</button>
+      <button class="btn btn-ghost" onclick="startListenClass('glosario')">📖 Solo glosarios</button>
+      <button class="btn btn-ghost" onclick="startListenClass('tematizacion')">🗂️ Solo tematización</button>
+    </div>
+  </div>
+</div>
 
 <div class="container">
 
@@ -214,10 +260,10 @@
       <p>Preguntas de evaluación y autoevaluación</p>
       <span class="status status-empty" id="statusCuestionario">Sin cargar</span>
     </a>
-    <a class="section-card" href="#" onclick="openSection('tematizacion'); return false;">
+    <a class="section-card" href="#" onclick="openMultiSelector('tematizacion'); return false;">
       <div class="icon">🗂️</div>
       <h3>Tematización</h3>
-      <p>Tema principal, subtemas y fragmentos representativos</p>
+      <p>Tema principal, subtemas con su alcance y fragmentos representativos</p>
       <span class="status status-empty" id="statusTematizacion">Sin cargar</span>
     </a>
     <a class="section-card" href="#" onclick="openSection('estudio'); return false;">
@@ -271,10 +317,15 @@
         <div class="contenidos-list" id="cuestionariosList"></div>
         <button class="add-contenido-btn" id="btnAddCuestionario" onclick="openLoaderMulti('cuestionario')" style="display:none;">+ Agregar otro cuestionario</button>
       </div>
-      <div class="upload-box" id="boxTematizacion" onclick="openLoader('tematizacion')">
-        <div class="up-icon">🗂️</div>
-        <div class="up-title">Tematización</div>
-        <div class="up-sub">Haz clic para cargar</div>
+      <!-- Tematización — multi-item -->
+      <div id="boxTematizacion">
+        <div class="upload-box" id="boxTematizacionInner" onclick="openLoaderMulti('tematizacion')">
+          <div class="up-icon">🗂️</div>
+          <div class="up-title">Tematización</div>
+          <div class="up-sub" id="tematizacionSub">Haz clic para agregar</div>
+        </div>
+        <div class="contenidos-list" id="tematizacionesList"></div>
+        <button class="add-contenido-btn" id="btnAddTematizacion" onclick="openLoaderMulti('tematizacion')" style="display:none;">+ Agregar otra tematización</button>
       </div>
     </div>
     <div style="margin-top:1rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
@@ -477,21 +528,23 @@ function getKey(type) { return `${KEY_PREFIX}_${type}`; }
 
 // ── Límite de la versión gratuita: máximo de ítems combinados ──────
 // Ya no es "máximo 2 por tipo": es máximo 2 EN TOTAL sumando
-// contenido + glosario + cuestionario juntos, por clase.
+// contenido + glosario + cuestionario + tematización juntos, por clase.
 const MAX_ITEMS_PER_TYPE = 2;
 
-// ── Sistema multi-item (Contenido, Glosario, Cuestionario) ─────────
+// ── Sistema multi-item (Contenido, Glosario, Cuestionario, Tematización) ───
 // Cada tipo tiene un índice: KEY_PREFIX_{type}s_index → [{ id, name, detectedType? }]
 // y un item por id: KEY_PREFIX_{type}_{id}
 const MULTI_CFG = {
-  contenido:    { icon: '📄', label: 'Contenido',    page: 'Contenido.html',    param: 'cid', detect: true  },
-  glosario:     { icon: '📖', label: 'Glosario',     page: 'Glosario.html',     param: 'gid', detect: false },
-  cuestionario: { icon: '✏️', label: 'Cuestionario', page: 'cuestionario.html', param: 'qid', detect: false },
+  contenido:    { icon: '📄', label: 'Contenido',     page: 'Contenido.html',           param: 'cid', detect: true  },
+  glosario:     { icon: '📖', label: 'Glosario',      page: 'Glosario.html',            param: 'gid', detect: false },
+  cuestionario: { icon: '✏️', label: 'Cuestionario',  page: 'cuestionario.html',        param: 'qid', detect: false },
+  tematizacion: { icon: '🗂️', label: 'Tematización',  page: 'Tematizacion_Vista.html',  param: 'tid', detect: false },
 };
 const MULTI_DOM = {
-  contenido:    { listEl: 'contenidosList',    boxInner: 'boxContenidoInner',    sub: 'contenidoSub',    addBtn: 'btnAddContenido',    status: 'statusContenido' },
-  glosario:     { listEl: 'glosariosList',     boxInner: 'boxGlosarioInner',     sub: 'glosarioSub',     addBtn: 'btnAddGlosario',     status: 'statusGlosario' },
-  cuestionario: { listEl: 'cuestionariosList', boxInner: 'boxCuestionarioInner', sub: 'cuestionarioSub', addBtn: 'btnAddCuestionario', status: 'statusCuestionario' },
+  contenido:    { listEl: 'contenidosList',      boxInner: 'boxContenidoInner',      sub: 'contenidoSub',      addBtn: 'btnAddContenido',      status: 'statusContenido' },
+  glosario:     { listEl: 'glosariosList',       boxInner: 'boxGlosarioInner',       sub: 'glosarioSub',       addBtn: 'btnAddGlosario',       status: 'statusGlosario' },
+  cuestionario: { listEl: 'cuestionariosList',   boxInner: 'boxCuestionarioInner',   sub: 'cuestionarioSub',   addBtn: 'btnAddCuestionario',   status: 'statusCuestionario' },
+  tematizacion: { listEl: 'tematizacionesList',  boxInner: 'boxTematizacionInner',   sub: 'tematizacionSub',   addBtn: 'btnAddTematizacion',   status: 'statusTematizacion' },
 };
 
 function getIndexKey(type) { return `${KEY_PREFIX}_${type}s_index`; }
@@ -514,7 +567,7 @@ function migrateLegacyToMulti(type) {
   const id = Date.now().toString();
   localStorage.setItem(`${KEY_PREFIX}_${type}_${id}`, legacyRaw);
   saveIndex(type, [{ id, name: `${MULTI_CFG[type].label} 1` }]);
-  if (type === 'cuestionario') localStorage.removeItem(legacyKey);
+  if (type === 'cuestionario' || type === 'tematizacion') localStorage.removeItem(legacyKey);
   // Para glosario se conserva la clave antigua: se mantiene sincronizada como
   // "espejo" del primer glosario para que Estudiar Glosario siga funcionando.
 }
@@ -605,6 +658,7 @@ function openMultiSelector(type) {
     contenido:    'el contenido que quieres ver',
     glosario:     'el glosario que quieres ver',
     cuestionario: 'el cuestionario que quieres responder',
+    tematizacion: 'la tematización que quieres ver',
   };
   document.getElementById('selectorTitle').textContent = `${cfg.icon} ${cfg.label}s disponibles`;
   document.getElementById('selectorSub').textContent   = `Selecciona ${verbMap[type]}`;
@@ -699,8 +753,8 @@ const JSON_TEMPLATES = {
     tema_principal_titulo: "Tema principal asociado al título",
     fragmento_tema_principal_titulo: "Fragmento representativo que ilustra el tema principal del título",
     subtemas_del_titulo: [
-      { subtema: "Nombre del subtema 1", fragmento: "Fragmento representativo del subtema 1" },
-      { subtema: "Nombre del subtema 2", fragmento: "Fragmento representativo del subtema 2" }
+      { subtema: "Nombre del subtema 1", alcance: "Qué abarca y hasta dónde llega este subtema 1", fragmento: "Fragmento representativo del subtema 1" },
+      { subtema: "Nombre del subtema 2", alcance: "Qué abarca y hasta dónde llega este subtema 2", fragmento: "Fragmento representativo del subtema 2" }
     ],
     subtitulos: [
       {
@@ -708,8 +762,8 @@ const JSON_TEMPLATES = {
         tema_principal_subtitulo: "Tema principal de este subtítulo",
         fragmento_tema_principal_subtitulo: "Fragmento representativo del tema principal del subtítulo",
         subtemas: [
-          { subtema: "Nombre del subtema 1.1", fragmento: "Fragmento representativo del subtema 1.1" },
-          { subtema: "Nombre del subtema 1.2", fragmento: "Fragmento representativo del subtema 1.2" }
+          { subtema: "Nombre del subtema 1.1", alcance: "Qué abarca y hasta dónde llega este subtema 1.1", fragmento: "Fragmento representativo del subtema 1.1" },
+          { subtema: "Nombre del subtema 1.2", alcance: "Qué abarca y hasta dónde llega este subtema 1.2", fragmento: "Fragmento representativo del subtema 1.2" }
         ]
       }
     ]
@@ -1684,7 +1738,7 @@ function openSection(type) {
   const checkKey = getKey(type);
   if (!localStorage.getItem(checkKey)) { showToast('⚠️ Primero carga el JSON de esta sección'); return; }
   const pages = {
-    glosario: 'Glosario.html', cuestionario: 'cuestionario.html', tematizacion: 'Tematizacion_Vista.html', estudio: 'estudio.html'
+    estudio: 'estudio.html'
   };
   navTo(`${pages[type]}?s=${subjectId}&c=${classId}`);
 }
@@ -1693,16 +1747,13 @@ function exportClass() {
   requireUnlock('export', () => {
     const sExp = { id: subjectId, name: subject ? subject.name : subjectId, icon: subject?.icon || '📘', color: subject?.color || '#4f46e5', classes: [] };
     const clsExp = { id: classId, name: cls ? cls.name : classId, data: {} };
-    // Tematización: dato único por clase
-    const tRaw = localStorage.getItem(getKey('tematizacion'));
-    if (tRaw) { try { clsExp.data.tematizacion = JSON.parse(tRaw); } catch {} }
     // Glosario / Cuestionario (espejo legado, por compatibilidad con versiones anteriores)
     ['glosario','cuestionario'].forEach(t => {
       const raw = localStorage.getItem(getKey(t));
       if (raw) { try { clsExp.data[t] = JSON.parse(raw); } catch {} }
     });
-    // Multi-item: Contenido, Glosario, Cuestionario
-    ['contenido','glosario','cuestionario'].forEach(type => {
+    // Multi-item: Contenido, Glosario, Cuestionario, Tematización
+    ['contenido','glosario','cuestionario','tematizacion'].forEach(type => {
       const idx = loadIndex(type);
       if (idx.length) {
         clsExp.data[`${type}s_index`] = idx;
@@ -1727,9 +1778,8 @@ function exportClass() {
 
 function clearAll() {
   if (!confirm('¿Eliminar todos los datos cargados en esta clase?')) return;
-  localStorage.removeItem(getKey('tematizacion')); updateStatus('tematizacion', false);
-  // limpiar todos los items multi: contenido, glosario, cuestionario
-  ['contenido','glosario','cuestionario'].forEach(type => {
+  // limpiar todos los items multi: contenido, glosario, cuestionario, tematización
+  ['contenido','glosario','cuestionario','tematizacion'].forEach(type => {
     loadIndex(type).forEach(item => localStorage.removeItem(`${KEY_PREFIX}_${type}_${item.id}`));
     saveIndex(type, []);
     renderMultiList(type);
@@ -1755,15 +1805,13 @@ document.querySelectorAll('.modal-overlay').forEach(m =>
 );
 
 // Inicializar
-// Tematización sigue siendo un único dato por clase
-if (localStorage.getItem(getKey('tematizacion'))) updateStatus('tematizacion', true);
-
-// Migrar glosario/cuestionario antiguos (un solo item) al nuevo formato de lista
+// Migrar glosario/cuestionario/tematización antiguos (un solo item) al nuevo formato de lista
 migrateLegacyToMulti('glosario');
 migrateLegacyToMulti('cuestionario');
+migrateLegacyToMulti('tematizacion');
 
-// Renderizar las tres listas multi-item
-['contenido','glosario','cuestionario'].forEach(type => renderMultiList(type));
+// Renderizar las cuatro listas multi-item
+['contenido','glosario','cuestionario','tematizacion'].forEach(type => renderMultiList(type));
 
 // Estudiar Glosario refleja si hay al menos un glosario cargado (multi-glosario o formato antiguo)
 if (loadIndex('glosario').length > 0 || localStorage.getItem(getKey('glosario'))) updateStatus('estudio', true);
@@ -1774,6 +1822,464 @@ function openMixQuiz() {
   if (list.length < 2) { showToast('⚠️ Necesitas al menos 2 contenidos para la Prueba Mix'); return; }
   const ids = list.map(item => item.id).join(',');
   navTo(`PruebaMix.html?s=${subjectId}&c=${classId}&ids=${ids}`);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 🔊 LECTOR DE CLASE (TTS) — lee Contenido + Glosario + Tematización
+// de ESTA clase de forma fluida y conectada, en un solo recorrido.
+// ══════════════════════════════════════════════════════════════════
+
+let ttsSpeaking   = false;
+let ttsPaused     = false;
+let ttsChunks     = [];   // [{ label, text }] — una entrada por ítem (contenido/glosario/tematización)
+let ttsUtterQueue = [];   // [{ chunkIndex, text }] — fragmentos cortos para el motor de voz
+let ttsCurUtterIdx = 0;
+let ttsVoice      = null;
+let ttsRequestId  = 0;    // invalida callbacks pendientes del motor nativo
+let ttsRate       = 1.0;
+const TTS_RATES   = [0.8, 1.0, 1.25, 1.5, 1.75, 2.0];
+
+// En Cordova Android se usa el plugin nativo (android.speech.tts). El WebView
+// no siempre implementa speechSynthesis, por lo que no se debe usar como
+// requisito para habilitar la lectura dentro de la aplicación.
+function hasNativeTTS() {
+  return !!(window.cordova && window.TTS && typeof window.TTS.speak === 'function');
+}
+
+function hasWebTTS() {
+  return 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function';
+}
+
+function clearNativeTTS() {
+  // El plugin nativo también detiene su servicio en primer plano.
+  if (hasNativeTTS() && typeof window.TTS.stop === 'function') window.TTS.stop();
+}
+
+function pickSpanishVoice() {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = speechSynthesis.getVoices();
+  if (!voices.length) return null;
+  return voices.find(v => /^es-(MX|419|CO|US)/i.test(v.lang))
+      || voices.find(v => /^es/i.test(v.lang))
+      || null;
+}
+if ('speechSynthesis' in window) {
+  ttsVoice = pickSpanishVoice();
+  speechSynthesis.onvoiceschanged = () => { ttsVoice = pickSpanishVoice(); };
+}
+
+function cap(s) { return s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : s; }
+
+function joinNatural(items) {
+  const arr = (items || []).filter(x => x !== null && x !== undefined && x !== '').map(x => String(x).trim()).filter(Boolean);
+  if (!arr.length) return '';
+  if (arr.length === 1) return arr[0];
+  return arr.slice(0, -1).join(', ') + ' y ' + arr[arr.length - 1];
+}
+
+function humanizeKey(key) { return String(key).replace(/_/g, ' ').trim(); }
+
+// Recorre el JSON completo para que la lectura no sea un resumen. Los
+// nombres de los campos se convierten en frases para conservar el contexto.
+function narrateCompleteValue(key, value, out) {
+  if (value === null || value === undefined || value === '') return;
+  const label = humanizeKey(key);
+  if (typeof value === 'string' || typeof value === 'number') {
+    out.push(`${cap(label)}: ${value}.`);
+    return;
+  }
+  if (typeof value === 'boolean') {
+    out.push(`${cap(label)}: ${value ? 'sí' : 'no'}.`);
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return;
+    out.push(`${cap(label)}:`);
+    value.forEach((item, index) => {
+      if (item && typeof item === 'object') {
+        out.push(`Elemento ${index + 1}.`);
+        Object.entries(item).forEach(([childKey, childValue]) => narrateCompleteValue(childKey, childValue, out));
+      } else {
+        out.push(`${item}.`);
+      }
+    });
+    return;
+  }
+  if (typeof value === 'object') {
+    out.push(`${cap(label)}:`);
+    Object.entries(value).forEach(([childKey, childValue]) => narrateCompleteValue(childKey, childValue, out));
+  }
+}
+
+function narrateCompleteData(data) {
+  const out = [];
+  if (Array.isArray(data)) {
+    data.forEach((item, index) => narrateCompleteValue(`elemento ${index + 1}`, item, out));
+  } else if (data && typeof data === 'object') {
+    Object.entries(data).forEach(([key, value]) => narrateCompleteValue(key, value, out));
+  }
+  return out.join(' ');
+}
+
+// ── Narrador genérico (fallback): convierte cualquier objeto JSON en
+// frases con sentido, usando los nombres de las claves como guía en
+// vez de leer el JSON literalmente ── 
+const NARR_TITLE_FIELDS = ['titulo','subtitulo','subtema','tema_principal','tema','pregunta','nombre',
+  'nombre_del_paso','nombre_producto','elemento','accion','termino','pieza','afirmacion','descripcion_general'];
+
+function narrateValue(key, value, out) {
+  if (value === null || value === undefined || value === '') return;
+  if (Array.isArray(value) && !value.length) return;
+  const label = humanizeKey(key);
+  if (typeof value === 'boolean') { out.push(`${cap(label)}: ${value ? 'sí' : 'no'}.`); return; }
+  if (typeof value === 'string' || typeof value === 'number') { out.push(`${cap(label)}: ${value}.`); return; }
+  if (Array.isArray(value)) {
+    if (typeof value[0] === 'string' || typeof value[0] === 'number') {
+      out.push(`${cap(label)}: ${joinNatural(value)}.`);
+    } else {
+      value.forEach(item => narrateObjectGeneric(item, out));
+    }
+    return;
+  }
+  if (typeof value === 'object') narrateObjectGeneric(value, out);
+}
+
+function narrateObjectGeneric(obj, out) {
+  if (!obj || typeof obj !== 'object') return;
+  let leadKey = null, lead = null;
+  for (const tf of NARR_TITLE_FIELDS) {
+    if (obj[tf] && typeof obj[tf] === 'string') { leadKey = tf; lead = obj[tf]; break; }
+  }
+  if (lead) out.push(`${lead}.`);
+  Object.entries(obj).forEach(([k, v]) => { if (k !== leadKey) narrateValue(k, v, out); });
+}
+
+// ── Glosario → lectura de "término: definición", agrupado si aplica ──
+function narrateGlosarioData(data) {
+  const list = Array.isArray(data) ? data : (data.glosario || data.terminos || []);
+  if (!Array.isArray(list) || !list.length) return '';
+  const groups = {}, order = [];
+  list.forEach(t => {
+    const g = t.grupo || '';
+    if (!(g in groups)) { groups[g] = []; order.push(g); }
+    groups[g].push(t);
+  });
+  const parts = [];
+  order.forEach(g => {
+    if (g) parts.push(`Dentro del grupo ${g}:`);
+    groups[g].forEach(t => {
+      if (t.termino) parts.push(`${cap(t.termino)}${t.definicion ? ': ' + t.definicion : ''}`);
+    });
+  });
+  return parts.join(' ');
+}
+
+// ── Tematización → recorrido conectado: tema principal, subtemas,
+// fragmentos, subtítulos y sus propios subtemas ── 
+function narrateTematizacionData(data) {
+  const out = [];
+  if (data.titulo) out.push(`El título general de esta clase es "${data.titulo}".`);
+  if (data.tema_principal_titulo) out.push(`Su tema principal es: ${data.tema_principal_titulo}.`);
+  if (data.fragmento_tema_principal_titulo) out.push(`Como fragmento representativo: ${data.fragmento_tema_principal_titulo}`);
+  (data.subtemas_del_titulo || []).forEach(st => {
+    if (st.subtema) out.push(`Uno de los subtemas es ${st.subtema}.`);
+    if (st.alcance) out.push(st.alcance);
+    if (st.fragmento) out.push(`Fragmento representativo: ${st.fragmento}`);
+  });
+  (data.subtitulos || []).forEach(sub => {
+    if (sub.subtitulo) out.push(`Pasamos ahora al subtítulo "${sub.subtitulo}".`);
+    if (sub.tema_principal_subtitulo) out.push(`Su tema principal es: ${sub.tema_principal_subtitulo}.`);
+    if (sub.fragmento_tema_principal_subtitulo) out.push(sub.fragmento_tema_principal_subtitulo);
+    (sub.subtemas || []).forEach(st => {
+      if (st.subtema) out.push(`Dentro de este subtítulo, un subtema es ${st.subtema}.`);
+      if (st.alcance) out.push(st.alcance);
+      if (st.fragmento) out.push(`Fragmento: ${st.fragmento}`);
+    });
+  });
+  return out.filter(Boolean).join(' ');
+}
+
+// ── Contenido → narradores a la medida de cada subtipo detectado,
+// con respaldo genérico para cualquier estructura no contemplada ──
+function narrateContenidoData(data, detectedType) {
+  const out = [];
+  switch (detectedType) {
+    case 'narrativa_historica': {
+      if (data.fuente?.titulo) out.push(`Esta narrativa proviene de la fuente "${data.fuente.titulo}"${data.fuente.autor ? ', escrita por ' + data.fuente.autor : ''}.`);
+      (data.arcos || []).forEach(arco => {
+        if (arco.titulo) out.push(`Comienza el arco narrativo "${arco.titulo}".`);
+        if (arco.descripcion) out.push(arco.descripcion);
+        (arco.secuencias || []).forEach(sec => {
+          if (sec.titulo) out.push(`En la secuencia "${sec.titulo}":`);
+          (sec.eventos || []).forEach(ev => {
+            let frase = ev.titulo ? `${ev.titulo}.` : '';
+            if (ev.descripcion) frase += ' ' + ev.descripcion;
+            if (ev.lugar?.nombre) frase += ` Esto ocurrió en ${ev.lugar.nombre}.`;
+            if (ev.actores?.length) frase += ` Participaron: ${joinNatural(ev.actores)}.`;
+            if (frase.trim()) out.push(frase.trim());
+          });
+        });
+      });
+      break;
+    }
+    case 'ensenanzas': {
+      (data.ensenanzas || []).forEach(en => {
+        let frase = en.enunciado || '';
+        if (en.cita_textual) frase += ` Como se afirma: ${en.cita_textual}`;
+        if (en.condicion?.tiene_condicion && en.condicion.si) frase += ` Esto aplica si ${en.condicion.si}, y entonces ${en.condicion.entonces || ''}.`;
+        if (frase.trim()) out.push(frase.trim());
+      });
+      break;
+    }
+    case 'procedimental': {
+      if (data.proposito?.objetivo_general) out.push(`El objetivo general de este procedimiento es ${data.proposito.objetivo_general}.`);
+      (data.estructura_procedimental || []).forEach(p => {
+        let frase = p.nombre_del_paso ? `Paso: ${p.nombre_del_paso}.` : '';
+        if (p.descripcion_operativa) frase += ' ' + p.descripcion_operativa;
+        if (p.responsable) frase += ` Responsable: ${p.responsable}.`;
+        if (frase.trim()) out.push(frase.trim());
+      });
+      break;
+    }
+    case 'prescriptivo': {
+      if (data.fundamento_normativo?.objetivo_general) out.push(`Esta norma tiene como objetivo general ${data.fundamento_normativo.objetivo_general}.`);
+      (data.estructura_normativa?.mandatos || []).forEach(m => out.push(`Se establece el mandato: ${m.descripcion}${m.responsable ? ', a cargo de ' + m.responsable : ''}.`));
+      (data.estructura_normativa?.prohibiciones || []).forEach(p => out.push(`Se prohíbe: ${p.descripcion}.`));
+      (data.estructura_normativa?.permisos || []).forEach(p => out.push(`Se permite: ${p.descripcion}.`));
+      break;
+    }
+    case 'leccion': {
+      const f = data.formato_rompecabezas_leccion || {};
+      if (f.pregunta_inicial?.texto) out.push(`La pregunta que guía esta lección es: ${f.pregunta_inicial.texto}`);
+      if (f.pregunta_inicial?.por_que_importa) out.push(f.pregunta_inicial.por_que_importa);
+      Object.entries(f.piezas_diarias || {}).forEach(([dia, pieza]) => {
+        const num = dia.replace('dia_', 'día ');
+        if (pieza.pieza) out.push(`Para el ${num}, la idea clave es: ${pieza.pieza}.`);
+        if (pieza.profundizacion) out.push(pieza.profundizacion);
+        if (pieza.referencia_biblica?.libro_capitulo_versiculo) out.push(`Se apoya en ${pieza.referencia_biblica.libro_capitulo_versiculo}${pieza.referencia_biblica.parte_que_aporta ? ', que aporta: ' + pieza.referencia_biblica.parte_que_aporta : ''}.`);
+      });
+      if (f.cierre_dia_7?.respuesta_final_a_la_pregunta_inicial) out.push(`Al cierre, la respuesta final es: ${f.cierre_dia_7.respuesta_final_a_la_pregunta_inicial}`);
+      if (f.cierre_dia_7?.accion_semanal_unica) out.push(`La acción práctica para la semana es: ${f.cierre_dia_7.accion_semanal_unica}`);
+      break;
+    }
+    case 'matutina': {
+      if (data.titulo) out.push(`La matutina se titula "${data.titulo}".`);
+      if (data.versiculo?.texto) out.push(`El versículo central dice: ${data.versiculo.texto}${data.versiculo.referencia ? ', ' + data.versiculo.referencia : ''}.`);
+      if (data.tema_principal) out.push(`El tema principal es ${data.tema_principal}.`);
+      if (data.leccion_central) out.push(`La enseñanza central es: ${data.leccion_central}`);
+      (data.invitaciones || []).forEach(inv => out.push(`Se invita a ${inv.accion}${inv.justificacion ? ', porque ' + inv.justificacion : ''}.`));
+      if (data.aplicaciones_practicas?.length) out.push(`Como aplicación práctica: ${joinNatural(data.aplicaciones_practicas)}.`);
+      break;
+    }
+    case 'academico': {
+      if (data.metadatos?.titulo) out.push(`Este texto académico se titula "${data.metadatos.titulo}"${data.metadatos.autor ? ', de ' + data.metadatos.autor : ''}.`);
+      if (data.definicion_del_problema?.pregunta_central) out.push(`La pregunta central que aborda es: ${data.definicion_del_problema.pregunta_central}`);
+      if (data.estructura_tesis?.tesis?.afirmaciones?.length) out.push(`La tesis sostiene que ${joinNatural(data.estructura_tesis.tesis.afirmaciones)}.`);
+      if (data.estructura_tesis?.antitesis?.posiciones_opuestas?.length) out.push(`Frente a esto, se plantean posiciones opuestas: ${joinNatural(data.estructura_tesis.antitesis.posiciones_opuestas)}.`);
+      if (data.estructura_tesis?.sintesis?.propuesta_integradora) out.push(`Como síntesis, se propone: ${data.estructura_tesis.sintesis.propuesta_integradora}`);
+      if (data.diagnostico?.problema_identificado) out.push(`Se identifica el problema de que ${data.diagnostico.problema_identificado}.`);
+      if (data.propuesta?.solucion_propuesta) out.push(`Se propone como solución: ${data.propuesta.solucion_propuesta}`);
+      break;
+    }
+  }
+  if (!out.length) narrateObjectGeneric(data, out); // respaldo genérico si el subtipo no tuvo plantilla propia
+  return out.filter(Boolean).join(' ');
+}
+
+// ── Arma el recorrido completo de la clase: intro + cada Contenido +
+// cada Glosario + cada Tematización cargados, en ese orden ──
+function buildClassNarration(scope = 'todo') {
+  const chunks = [];
+  const claseName = cls ? cls.name : 'esta clase';
+  const asigName = subject ? subject.name : '';
+  const scopeNames = { todo: 'completa', contenido: 'de contenidos', glosario: 'de glosarios', tematizacion: 'de tematización' };
+  chunks.push({ label: 'Introducción', text: `Vamos a iniciar la lectura ${scopeNames[scope] || 'completa'} de la clase ${claseName}${asigName ? ', de la asignatura ' + asigName : ''}.` });
+
+  if (scope === 'todo' || scope === 'contenido') loadIndex('contenido').forEach(item => {
+    const raw = localStorage.getItem(`${KEY_PREFIX}_contenido_${item.id}`);
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      const text = narrateCompleteData(data);
+      if (text) chunks.push({ label: `Contenido — ${item.name}`, text: `Contenido: ${item.name}. ${text}` });
+    } catch {}
+  });
+
+  if (scope === 'todo' || scope === 'glosario') loadIndex('glosario').forEach(item => {
+    const raw = localStorage.getItem(`${KEY_PREFIX}_glosario_${item.id}`);
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      const text = narrateCompleteData(data);
+      if (text) chunks.push({ label: `Glosario — ${item.name}`, text: `Glosario: ${item.name}. ${text}` });
+    } catch {}
+  });
+
+  if (scope === 'todo' || scope === 'tematizacion') loadIndex('tematizacion').forEach(item => {
+    const raw = localStorage.getItem(`${KEY_PREFIX}_tematizacion_${item.id}`);
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      const text = narrateCompleteData(data);
+      if (text) chunks.push({ label: `Tematización — ${item.name}`, text: `Tematización: ${item.name}. ${text}` });
+    } catch {}
+  });
+
+  return chunks;
+}
+
+// Divide un texto largo en fragmentos cortos por oración (algunos motores
+// de TTS en Android cortan o fallan con textos muy largos en un solo utterance)
+function splitIntoUtterances(text, maxLen = 200) {
+  const sentences = text.match(/[^.!?]+[.!?]+(\s+|$)/g) || [text];
+  const pieces = [];
+  let cur = '';
+  sentences.forEach(s => {
+    if ((cur + s).length > maxLen && cur) { pieces.push(cur.trim()); cur = ''; }
+    cur += s;
+  });
+  if (cur.trim()) pieces.push(cur.trim());
+  return pieces;
+}
+
+function toggleListenClass() {
+  if (ttsSpeaking) { stopListenClass(); return; }
+  openModal('modalListenSelector');
+}
+
+function startListenClass(scope) {
+  closeModal('modalListenSelector');
+  if (!hasNativeTTS() && !hasWebTTS()) {
+    showToast('⚠️ La lectura en voz alta aún no está disponible');
+    return;
+  }
+
+  ttsChunks = buildClassNarration(scope);
+  if (ttsChunks.length <= 1) { // solo la introducción, sin contenido real
+    const names = { contenido: 'contenidos', glosario: 'glosarios', tematizacion: 'tematizaciones', todo: 'contenidos, glosarios o tematizaciones' };
+    showToast(`⚠️ Aún no hay ${names[scope] || 'datos'} cargados para leer`);
+    return;
+  }
+
+  ttsUtterQueue = [];
+  ttsChunks.forEach((c, ci) => splitIntoUtterances(c.text).forEach(t => ttsUtterQueue.push({ chunkIndex: ci, text: t })));
+  ttsCurUtterIdx = 0;
+  ttsSpeaking = true;
+  ttsPaused = false;
+
+  document.getElementById('ttsBar').classList.add('show');
+  document.getElementById('btnListenClass').textContent = '⏹️ Detener lectura';
+  document.getElementById('ttsPauseBtn').textContent = '⏸️ Pausar';
+  // Android deja que la pantalla apague el WebView y retrasa sus callbacks.
+  // La cola nativa evita huecos entre frases mientras el servicio en primer
+  // plano mantiene el proceso de lectura activo.
+  if (hasNativeTTS() && typeof window.TTS.speakQueue === 'function') {
+    speakNativeQueue();
+  } else {
+    speakNextUtterance();
+  }
+}
+
+function speakNativeQueue() {
+  if (!ttsSpeaking || ttsPaused || !ttsUtterQueue.length) return;
+  const requestId = ++ttsRequestId;
+  const first = ttsUtterQueue[0];
+  document.getElementById('ttsStatusTitle').textContent = first ? ttsChunks[first.chunkIndex].label : '';
+  document.getElementById('ttsStatusSub').textContent = `Leyendo ${ttsUtterQueue.length} fragmentos`;
+  window.TTS.speakQueue({
+    texts: ttsUtterQueue.map(item => item.text),
+    locale: 'es-ES',
+    rate: ttsRate
+  }, () => {
+    if (requestId === ttsRequestId && ttsSpeaking && !ttsPaused) finishListenClass();
+  }, () => {
+    if (requestId === ttsRequestId && ttsSpeaking && !ttsPaused) finishListenClass();
+  });
+}
+
+function speakNextUtterance() {
+  if (!ttsSpeaking || ttsPaused) return;
+  if (ttsCurUtterIdx >= ttsUtterQueue.length) { finishListenClass(); return; }
+
+  const { chunkIndex, text } = ttsUtterQueue[ttsCurUtterIdx];
+  document.getElementById('ttsStatusTitle').textContent = ttsChunks[chunkIndex].label;
+  document.getElementById('ttsStatusSub').textContent = `Parte ${ttsCurUtterIdx + 1} de ${ttsUtterQueue.length}`;
+
+  if (hasNativeTTS()) {
+    const requestId = ++ttsRequestId;
+    const next = () => {
+      // Ignora callbacks de frases canceladas al pausar o detener.
+      if (requestId !== ttsRequestId || !ttsSpeaking || ttsPaused) return;
+      ttsCurUtterIdx++;
+      speakNextUtterance();
+    };
+    window.TTS.speak({ text, locale: 'es-ES', rate: ttsRate }, next, next);
+    return;
+  }
+
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = ttsVoice ? ttsVoice.lang : 'es-ES';
+  if (ttsVoice) utt.voice = ttsVoice;
+  utt.rate = ttsRate;
+  utt.pitch = 1.0;
+  utt.onend = () => { ttsCurUtterIdx++; speakNextUtterance(); };
+  utt.onerror = () => { ttsCurUtterIdx++; speakNextUtterance(); };
+  speechSynthesis.speak(utt);
+}
+
+function cycleTtsRate() {
+  const current = TTS_RATES.indexOf(ttsRate);
+  ttsRate = TTS_RATES[(current + 1) % TTS_RATES.length];
+  document.getElementById('ttsRateBtn').textContent = `${ttsRate}×`;
+
+  // Al cambiar de velocidad durante la lectura se reinicia únicamente el
+  // fragmento en curso para aplicarla de inmediato.
+  if (ttsSpeaking && !ttsPaused) {
+    ttsRequestId++;
+    if (hasNativeTTS()) clearNativeTTS();
+    else if (hasWebTTS()) speechSynthesis.cancel();
+    if (hasNativeTTS() && typeof window.TTS.speakQueue === 'function') speakNativeQueue();
+    else speakNextUtterance();
+  }
+}
+
+function pauseResumeListen() {
+  if (!ttsSpeaking) return;
+  if (ttsPaused) {
+    ttsPaused = false;
+    document.getElementById('ttsPauseBtn').textContent = '⏸️ Pausar';
+    if (hasNativeTTS() && typeof window.TTS.speakQueue === 'function') speakNativeQueue();
+    else if (hasNativeTTS()) speakNextUtterance();
+    else speechSynthesis.resume();
+  } else {
+    ttsPaused = true;
+    document.getElementById('ttsPauseBtn').textContent = '▶️ Reanudar';
+    if (hasNativeTTS()) {
+      ttsRequestId++;
+      clearNativeTTS();
+    } else {
+      speechSynthesis.pause();
+    }
+  }
+}
+
+function stopListenClass() {
+  ttsSpeaking = false;
+  ttsPaused = false;
+  ttsRequestId++;
+  if (hasNativeTTS()) clearNativeTTS();
+  else if (hasWebTTS()) speechSynthesis.cancel();
+  document.getElementById('ttsBar').classList.remove('show');
+  document.getElementById('btnListenClass').textContent = '🔊 Escuchar clase';
+}
+
+function finishListenClass() {
+  ttsSpeaking = false;
+  ttsPaused = false;
+  if (hasNativeTTS()) clearNativeTTS();
+  document.getElementById('ttsBar').classList.remove('show');
+  document.getElementById('btnListenClass').textContent = '🔊 Escuchar clase';
+  showToast('✅ Lectura de la clase finalizada');
 }
 </script>
 </body>

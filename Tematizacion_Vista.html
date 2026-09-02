@@ -24,6 +24,10 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  html, body {
+    overflow-x: hidden;
+  }
+
   body {
     font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     background: var(--bg);
@@ -31,6 +35,7 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    width: 100%;
   }
 
   /* ── HEADER ── */
@@ -125,6 +130,7 @@
     margin-bottom: 1.5rem;
     position: relative;
     overflow: hidden;
+    max-width: 100%;
   }
   .titulo-hero::before {
     content: '';
@@ -156,8 +162,10 @@
     font-weight: 600;
     line-height: 1.3;
     margin-bottom: 1.25rem;
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
-  .tema-pill-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem; }
+  .tema-pill-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem; max-width: 100%; }
   .tema-pill {
     background: rgba(99,102,241,0.18);
     color: #a5b4fc;
@@ -166,12 +174,16 @@
     padding: 0.3rem 0.7rem;
     border-radius: 99px;
     border: 1px solid rgba(99,102,241,0.3);
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .fragmento-block {
     border-left: 3px solid #818cf8;
     padding: 0.85rem 1rem;
     background: rgba(99,102,241,0.08);
     border-radius: 0 8px 8px 0;
+    max-width: 100%;
   }
   .fragmento-block .frag-label {
     font-size: 0.62rem;
@@ -187,6 +199,7 @@
     font-size: 0.9rem;
     line-height: 1.7;
     color: #e0e7ff;
+    overflow-wrap: anywhere;
   }
 
   /* ── SUBTEMAS DEL TITULO ── */
@@ -249,6 +262,8 @@
     color: var(--ink);
     line-height: 1.35;
     flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .subtema-chevron {
     color: var(--ink-3);
@@ -264,11 +279,35 @@
   }
   .subtema-card.open .subtema-card-body { display: block; }
 
+  .subtema-alcance {
+    border-left: 2px solid var(--gold);
+    padding: 0.65rem 0.85rem;
+    background: var(--gold-light);
+    border-radius: 0 7px 7px 0;
+    max-width: 100%;
+    margin-bottom: 0.6rem;
+  }
+  .subtema-alcance .sa-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 0.3rem;
+  }
+  .subtema-alcance .sa-text {
+    font-size: 0.83rem;
+    line-height: 1.6;
+    color: var(--ink-2);
+    overflow-wrap: anywhere;
+  }
+
   .subtema-frag {
     border-left: 2px solid var(--accent);
     padding: 0.65rem 0.85rem;
     background: var(--accent-light);
     border-radius: 0 7px 7px 0;
+    max-width: 100%;
   }
   .subtema-frag .sf-label {
     font-size: 0.6rem;
@@ -284,6 +323,7 @@
     font-size: 0.83rem;
     line-height: 1.65;
     color: var(--ink-2);
+    overflow-wrap: anywhere;
   }
 
   /* ── SUBTITULOS ── */
@@ -327,6 +367,8 @@
     line-height: 1.3;
     color: var(--ink);
     margin-bottom: 0.25rem;
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
   .subtitulo-tema-preview {
     font-size: 0.78rem;
@@ -366,6 +408,7 @@
     margin-bottom: 1.25rem;
     border: 1px solid #fde68a;
     border-left: 3px solid var(--gold);
+    max-width: 100%;
   }
   .tema-sub-block .tsb-eyebrow {
     font-size: 0.62rem;
@@ -381,6 +424,7 @@
     color: var(--ink);
     margin-bottom: 0.75rem;
     line-height: 1.4;
+    overflow-wrap: anywhere;
   }
   .tema-sub-block .tsb-frag-label {
     font-size: 0.6rem;
@@ -396,6 +440,7 @@
     font-size: 0.85rem;
     line-height: 1.65;
     color: var(--ink-2);
+    overflow-wrap: anywhere;
   }
 
   /* ── EMPTY / ERROR ── */
@@ -417,8 +462,9 @@
 
   /* ── RESPONSIVE ── */
   @media (max-width: 700px) {
-    .layout { flex-direction: column; padding: 1rem; gap: 1rem; }
+    .layout { flex-direction: column; padding: 1rem; gap: 1rem; align-items: stretch; }
     .sidebar { display: none; }
+    main { width: 100%; }
     .subtemas-grid { grid-template-columns: 1fr; }
     .titulo-name { font-size: 1.3rem; }
   }
@@ -449,7 +495,8 @@
 const params = new URLSearchParams(location.search);
 const subjectId = params.get('s');
 const classId = params.get('c');
-const KEY = `study_${subjectId}_${classId}_tematizacion`;
+const tid = params.get('tid'); // id de la tematización específica
+const KEY_PREFIX = `study_${subjectId}_${classId}`;
 
 // Update header
 const subjects = JSON.parse(localStorage.getItem('study_subjects') || '[]');
@@ -462,7 +509,22 @@ const root = document.getElementById('root');
 const navList = document.getElementById('navList');
 
 // ── Load data ──────────────────────────────────────────────────────
-const raw = localStorage.getItem(KEY);
+let raw = null;
+let tematizacionName = '';
+if (tid) {
+  raw = localStorage.getItem(`${KEY_PREFIX}_tematizacion_${tid}`);
+  try {
+    const idx = JSON.parse(localStorage.getItem(`${KEY_PREFIX}_tematizacions_index`) || '[]');
+    const item = idx.find(i => i.id === tid);
+    if (item) tematizacionName = item.name;
+  } catch {}
+} else {
+  // fallback legacy: KEY_tematizacion (una sola tematización por clase)
+  raw = localStorage.getItem(`${KEY_PREFIX}_tematizacion`);
+}
+if (tematizacionName) {
+  document.getElementById('headerSub').textContent = cls ? `${cls.name} · ${tematizacionName}` : tematizacionName;
+}
 
 if (!raw) {
   root.innerHTML = `<div class="error-box">⚠️ No hay tematización cargada para esta clase.<br>Vuelve y carga el JSON de tematización.</div>`;
@@ -586,18 +648,24 @@ function render(d) {
 
 function buildSubtemaCard(s, i, id) {
   const nombre = s.subtema || `(Subtema ${i + 1})`;
+  const alcance = s.alcance || '';
   const frag = s.fragmento || '';
+  const hasBody = alcance || frag;
   return `<div class="subtema-card" id="card_${id}">
     <div class="subtema-card-header" onclick="toggleCard('card_${id}')">
       <div class="subtema-num">${i + 1}</div>
       <div class="subtema-title-text">${escH(nombre)}</div>
       <span class="subtema-chevron">▼</span>
     </div>
-    ${frag ? `<div class="subtema-card-body">
-      <div class="subtema-frag">
+    ${hasBody ? `<div class="subtema-card-body">
+      ${alcance ? `<div class="subtema-alcance">
+        <div class="sa-label">🎯 Alcance</div>
+        <div class="sa-text">${escH(alcance)}</div>
+      </div>` : ''}
+      ${frag ? `<div class="subtema-frag">
         <div class="sf-label">💬 Fragmento</div>
         <div class="sf-text">${escH(frag)}</div>
-      </div>
+      </div>` : ''}
     </div>` : ''}
   </div>`;
 }

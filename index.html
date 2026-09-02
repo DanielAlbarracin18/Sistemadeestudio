@@ -18,6 +18,7 @@
 
   .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; gap: 0.75rem; flex-wrap: wrap; }
   .top-bar h2 { font-size: 1.1rem; font-weight: 600; color: #1a1a2e; }
+  .top-bar-left { display: flex; align-items: center; gap: 0.6rem; }
   .top-bar-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
   .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.1rem; border-radius: 8px; border: none; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: all 0.15s; }
@@ -51,7 +52,7 @@
   .modal h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 1.25rem; }
   .modal label { display: block; font-size: 0.85rem; color: #374151; margin-bottom: 0.35rem; font-weight: 500; }
   .modal input { width: 100%; padding: 0.55rem 0.75rem; border: 1.5px solid #d1d5db; border-radius: 8px; font-size: 0.9rem; outline: none; transition: border 0.15s; }
-  .modal input:focus { border-color: #4f46e5; }
+  .modal input:focus, .modal select:focus { border-color: #4f46e5; }
   .modal .form-group { margin-bottom: 1rem; }
   .modal .emojis { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.35rem; }
   .modal .emojis span { cursor: pointer; font-size: 1.3rem; padding: 0.2rem 0.3rem; border-radius: 6px; border: 2px solid transparent; transition: border 0.1s; }
@@ -119,15 +120,25 @@
 
 <div class="container">
   <div class="top-bar">
-    <h2>Mis Asignaturas</h2>
+    <div class="top-bar-left">
+      <button class="btn btn-ghost btn-sm" id="btnBackAmbitos" onclick="showAmbitosView()" style="display:none;">← Ámbitos</button>
+      <h2 id="viewTitle">Mis Ámbitos</h2>
+    </div>
     <div class="top-bar-actions">
       <button class="btn btn-ghost btn-sm" onclick="navTo('usuarios.html')">👤 Usuarios</button>
-      <button class="btn btn-ghost btn-sm" onclick="openImport()">📥 Importar</button>
-      <button class="btn btn-primary" onclick="openNewSubject()">+ Nueva Asignatura</button>
+      <button class="btn btn-ghost btn-sm" id="btnImport" onclick="openImport()" style="display:none;">📥 Importar</button>
+      <button class="btn btn-primary" id="btnNewAmbito" onclick="openNewAmbito()">+ Nuevo Ámbito</button>
+      <button class="btn btn-primary" id="btnNewSubject" onclick="openNewSubject()" style="display:none;">+ Nueva Asignatura</button>
     </div>
   </div>
 
-  <div class="subjects-grid" id="subjectsGrid"></div>
+  <div class="subjects-grid" id="ambitosGrid"></div>
+  <div class="empty-state" id="emptyAmbitosState" style="display:none;">
+    <div class="icon">🗂️</div>
+    <p>No tienes ámbitos todavía.<br>Crea uno para organizar tus asignaturas (Ej: Colegio, Universidad, Iglesia).</p>
+  </div>
+
+  <div class="subjects-grid" id="subjectsGrid" style="display:none;"></div>
   <div class="empty-state" id="emptyState" style="display:none;">
     <div class="icon">🎓</div>
     <p>No tienes asignaturas todavía.<br>Crea una para comenzar.</p>
@@ -142,6 +153,10 @@
       <label>Nombre</label>
       <input type="text" id="inputSubjectName" placeholder="Ej: Cálculo Diferencial">
     </div>
+    <div class="form-group" id="subjectAmbitoGroup">
+      <label>Ámbito</label>
+      <select id="selectSubjectAmbito" style="width:100%; padding:0.55rem 0.75rem; border:1.5px solid #d1d5db; border-radius:8px; font-size:0.9rem; outline:none; background:#fff;"></select>
+    </div>
     <div class="form-group">
       <label>Ícono</label>
       <div class="emojis" id="emojiPicker"></div>
@@ -153,6 +168,29 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modalSubject')">Cancelar</button>
       <button class="btn btn-primary" onclick="saveSubject()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Nuevo/Editar Ámbito -->
+<div class="modal-overlay" id="modalAmbito">
+  <div class="modal">
+    <h3 id="modalAmbitoTitle">Nuevo Ámbito</h3>
+    <div class="form-group">
+      <label>Nombre</label>
+      <input type="text" id="inputAmbitoName" placeholder="Ej: Colegio, Universidad, Iglesia">
+    </div>
+    <div class="form-group">
+      <label>Ícono</label>
+      <div class="emojis" id="emojiPickerAmbito"></div>
+    </div>
+    <div class="form-group">
+      <label>Color</label>
+      <div class="colors-row" id="colorPickerAmbito"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalAmbito')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAmbito()">Guardar</button>
     </div>
   </div>
 </div>
@@ -247,8 +285,18 @@ let selectedEmoji = EMOJIS[0];
 let selectedColor = COLORS[0];
 let importPayload = null;
 
+// ── Ámbitos: contenedores de asignaturas (ilimitados) ──────────────
+let ambitos = JSON.parse(localStorage.getItem('study_ambitos') || '[]');
+let currentAmbitoId = null;       // ámbito actualmente abierto (vista de asignaturas)
+let viewMode = 'ambitos';          // 'ambitos' | 'subjects'
+let editingAmbitoId = null;
+let selectedAmbitoEmoji = EMOJIS[0];
+let selectedAmbitoColor = COLORS[0];
+
 // ── Límites de la versión gratuita (creación + importación cuentan igual) ──
-const MAX_SUBJECTS = 3;
+// Los ÁMBITOS son ilimitados. El límite aplica al TOTAL de asignaturas
+// sumando entre TODOS los ámbitos.
+const MAX_SUBJECTS = 5;
 const MAX_CLASSES_PER_SUBJECT = 3;
 const MAX_ITEMS_PER_TYPE = 2; // contenido / glosario / cuestionario, por clase
 
@@ -261,14 +309,92 @@ function itemCountsExceedLimit(data) {
 }
 
 function save() { localStorage.setItem('study_subjects', JSON.stringify(subjects)); }
+function saveAmbitos() { localStorage.setItem('study_ambitos', JSON.stringify(ambitos)); }
+
+// ── Migración: asignaturas creadas antes de que existieran los ámbitos ──
+// Se agrupan automáticamente en un ámbito "General" para no perder nada.
+function migrateToAmbitos() {
+  const needsMigration = subjects.some(s => !s.ambitoId);
+  if (!needsMigration) return;
+  let general = ambitos.find(a => a.id === 'general');
+  if (!general) {
+    general = { id: 'general', name: 'General', icon: '🗂️', color: COLORS[0] };
+    ambitos.unshift(general);
+    saveAmbitos();
+  }
+  subjects.forEach(s => { if (!s.ambitoId) s.ambitoId = general.id; });
+  save();
+}
+
+// ── Arranque: recuerda y reabre automáticamente el último ámbito abierto ──
+function initView() {
+  migrateToAmbitos();
+  const last = localStorage.getItem('study_current_ambito');
+  if (last && ambitos.find(a => a.id === last)) {
+    currentAmbitoId = last;
+    viewMode = 'subjects';
+  } else {
+    viewMode = 'ambitos';
+  }
+  render();
+}
 
 function render() {
+  const showSubjects = viewMode === 'subjects' && !!currentAmbitoId;
+  document.getElementById('ambitosGrid').style.display = showSubjects ? 'none' : '';
+  document.getElementById('subjectsGrid').style.display = showSubjects ? '' : 'none';
+  document.getElementById('btnBackAmbitos').style.display = showSubjects ? 'inline-flex' : 'none';
+  document.getElementById('btnNewAmbito').style.display = showSubjects ? 'none' : 'inline-flex';
+  document.getElementById('btnNewSubject').style.display = showSubjects ? 'inline-flex' : 'none';
+  document.getElementById('btnImport').style.display = showSubjects ? 'inline-flex' : 'none';
+  if (showSubjects) {
+    const a = ambitos.find(x => x.id === currentAmbitoId);
+    document.getElementById('viewTitle').textContent = a ? `${a.icon} ${a.name}` : 'Asignaturas';
+    document.getElementById('emptyAmbitosState').style.display = 'none';
+    renderSubjects();
+  } else {
+    document.getElementById('viewTitle').textContent = 'Mis Ámbitos';
+    document.getElementById('emptyState').style.display = 'none';
+    renderAmbitos();
+  }
+}
+
+function renderAmbitos() {
+  const grid = document.getElementById('ambitosGrid');
+  const empty = document.getElementById('emptyAmbitosState');
+  grid.innerHTML = '';
+  if (!ambitos.length) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  ambitos.forEach(a => {
+    const subjCount = subjects.filter(s => s.ambitoId === a.id).length;
+    const card = document.createElement('div');
+    card.className = 'subject-card';
+    card.innerHTML = `
+      <div class="subject-body" onclick="openAmbito('${a.id}')">
+        <div class="subject-icon" style="background:${a.color}22;">${a.icon}</div>
+        <div>
+          <div class="subject-name">${escH(a.name)}</div>
+          <div class="subject-meta">${subjCount} asignatura${subjCount !== 1 ? 's' : ''}</div>
+        </div>
+        <span class="subject-arrow">›</span>
+      </div>
+      <div class="subject-card-footer">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openEditAmbito('${a.id}')">✏️</button>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); deleteAmbito('${a.id}')">🗑️</button>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function renderSubjects() {
   const grid = document.getElementById('subjectsGrid');
   const empty = document.getElementById('emptyState');
   grid.innerHTML = '';
-  if (!subjects.length) { empty.style.display = 'block'; return; }
+  const list = subjects.filter(s => s.ambitoId === currentAmbitoId);
+  if (!list.length) { empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  subjects.forEach(s => {
+  list.forEach(s => {
     const classCount = (s.classes || []).length;
     const card = document.createElement('div');
     card.className = 'subject-card';
@@ -295,6 +421,84 @@ function openSubject(id) {
   navTo(`clases.html?s=${id}`);
 }
 
+// ── Ámbitos: navegación y CRUD ───────────────────────────────────────
+function openAmbito(id) {
+  currentAmbitoId = id;
+  localStorage.setItem('study_current_ambito', id); // recordar para el próximo inicio
+  viewMode = 'subjects';
+  render();
+}
+function showAmbitosView() {
+  viewMode = 'ambitos';
+  render();
+}
+function openNewAmbito() {
+  editingAmbitoId = null;
+  selectedAmbitoEmoji = EMOJIS[0]; selectedAmbitoColor = COLORS[0];
+  document.getElementById('inputAmbitoName').value = '';
+  document.getElementById('modalAmbitoTitle').textContent = 'Nuevo Ámbito';
+  buildAmbitoEmojiPicker(); buildAmbitoColorPicker();
+  openModal('modalAmbito');
+}
+function openEditAmbito(id) {
+  const a = ambitos.find(x => x.id === id);
+  if (!a) return;
+  editingAmbitoId = id;
+  selectedAmbitoEmoji = a.icon; selectedAmbitoColor = a.color;
+  document.getElementById('inputAmbitoName').value = a.name;
+  document.getElementById('modalAmbitoTitle').textContent = 'Editar Ámbito';
+  buildAmbitoEmojiPicker(); buildAmbitoColorPicker();
+  openModal('modalAmbito');
+}
+function saveAmbito() {
+  const name = document.getElementById('inputAmbitoName').value.trim();
+  if (!name) return alert('Escribe un nombre para el ámbito.');
+  if (editingAmbitoId) {
+    const a = ambitos.find(x => x.id === editingAmbitoId);
+    a.name = name; a.icon = selectedAmbitoEmoji; a.color = selectedAmbitoColor;
+  } else {
+    // Los ámbitos son ilimitados: no hay restricción de clave aquí.
+    ambitos.push({ id: Date.now().toString(), name, icon: selectedAmbitoEmoji, color: selectedAmbitoColor });
+  }
+  saveAmbitos(); render(); closeModal('modalAmbito');
+}
+function deleteAmbito(id) {
+  const count = subjects.filter(s => s.ambitoId === id).length;
+  const msg = count > 0
+    ? `¿Eliminar este ámbito y ${count === 1 ? 'su' : 'sus'} ${count} asignatura${count !== 1 ? 's' : ''} (con todas sus clases)? Esta acción no se puede deshacer.`
+    : '¿Eliminar este ámbito?';
+  if (!confirm(msg)) return;
+  subjects = subjects.filter(s => s.ambitoId !== id);
+  ambitos = ambitos.filter(a => a.id !== id);
+  save(); saveAmbitos();
+  if (currentAmbitoId === id) {
+    currentAmbitoId = null;
+    localStorage.removeItem('study_current_ambito');
+    viewMode = 'ambitos';
+  }
+  render();
+}
+function buildAmbitoEmojiPicker() {
+  document.getElementById('emojiPickerAmbito').innerHTML = EMOJIS.map(e =>
+    `<span onclick="selectAmbitoEmoji(this,'${e}')" class="${e===selectedAmbitoEmoji?'selected':''}">${e}</span>`
+  ).join('');
+}
+function buildAmbitoColorPicker() {
+  document.getElementById('colorPickerAmbito').innerHTML = COLORS.map(c =>
+    `<div class="color-dot${c===selectedAmbitoColor?' selected':''}" style="background:${c};" onclick="selectAmbitoColor(this,'${c}')"></div>`
+  ).join('');
+}
+function selectAmbitoEmoji(el, e) {
+  selectedAmbitoEmoji = e;
+  document.querySelectorAll('#emojiPickerAmbito span').forEach(s => s.classList.remove('selected'));
+  el.classList.add('selected');
+}
+function selectAmbitoColor(el, c) {
+  selectedAmbitoColor = c;
+  document.querySelectorAll('#colorPickerAmbito .color-dot').forEach(d => d.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
 // ── Emoji / color pickers ─────────────────────────────────────────
 function buildEmojiPicker() {
   document.getElementById('emojiPicker').innerHTML = EMOJIS.map(e =>
@@ -318,12 +522,21 @@ function selectColor(el, c) {
 }
 
 // ── Subject CRUD ──────────────────────────────────────────────────
+function buildAmbitoSelect(selectedId) {
+  const sel = document.getElementById('selectSubjectAmbito');
+  sel.innerHTML = ambitos.map(a =>
+    `<option value="${a.id}"${a.id === selectedId ? ' selected' : ''}>${a.icon} ${escH(a.name)}</option>`
+  ).join('');
+  // Si solo hay un ámbito no tiene sentido mostrar el selector para elegir
+  document.getElementById('subjectAmbitoGroup').style.display = ambitos.length > 1 ? 'block' : 'none';
+}
 function openNewSubject() {
+  if (!currentAmbitoId) { showToast('⚠️ Abre un ámbito primero'); return; }
   editingSubjectId = null;
   selectedEmoji = EMOJIS[0]; selectedColor = COLORS[0];
   document.getElementById('inputSubjectName').value = '';
   document.getElementById('modalSubjectTitle').textContent = 'Nueva Asignatura';
-  buildEmojiPicker(); buildColorPicker();
+  buildEmojiPicker(); buildColorPicker(); buildAmbitoSelect(currentAmbitoId);
   openModal('modalSubject');
 }
 function openEditSubject(id) {
@@ -333,24 +546,32 @@ function openEditSubject(id) {
   selectedEmoji = s.icon; selectedColor = s.color;
   document.getElementById('inputSubjectName').value = s.name;
   document.getElementById('modalSubjectTitle').textContent = 'Editar Asignatura';
-  buildEmojiPicker(); buildColorPicker();
+  buildEmojiPicker(); buildColorPicker(); buildAmbitoSelect(s.ambitoId);
   openModal('modalSubject');
 }
 function saveSubject() {
   const name = document.getElementById('inputSubjectName').value.trim();
   if (!name) return alert('Escribe un nombre para la asignatura.');
+  const selectedAmbitoId = document.getElementById('selectSubjectAmbito').value || currentAmbitoId;
   if (editingSubjectId) {
     const s = subjects.find(x => x.id === editingSubjectId);
-    s.name = name; s.icon = selectedEmoji; s.color = selectedColor;
-    save(); render(); closeModal('modalSubject');
+    const movedOut = s.ambitoId !== selectedAmbitoId;
+    s.name = name; s.icon = selectedEmoji; s.color = selectedColor; s.ambitoId = selectedAmbitoId;
+    save(); closeModal('modalSubject');
+    if (movedOut) {
+      const destino = ambitos.find(a => a.id === selectedAmbitoId);
+      showToast(`✅ Movida a "${destino ? destino.name : 'otro ámbito'}"`);
+    }
+    render();
     return;
   }
+  if (!currentAmbitoId) { showToast('⚠️ Abre un ámbito primero'); return; }
   const create = () => {
-    subjects.push({ id: Date.now().toString(), name, icon: selectedEmoji, color: selectedColor, classes: [] });
+    subjects.push({ id: Date.now().toString(), name, icon: selectedEmoji, color: selectedColor, classes: [], ambitoId: selectedAmbitoId });
     save(); render(); closeModal('modalSubject');
   };
   if (subjects.length >= MAX_SUBJECTS) {
-    requireUnlock('import', create, `🔒 Límite gratuito: máximo ${MAX_SUBJECTS} asignaturas. Ingresa tu clave de importación/creación para crear más.`);
+    requireUnlock('import', create, `🔒 Límite gratuito: máximo ${MAX_SUBJECTS} asignaturas en total (sumando entre todos tus ámbitos). Ingresa tu clave de importación/creación para crear más.`);
   } else {
     create();
   }
@@ -519,8 +740,13 @@ const PURPOSE_LABEL = {
 };
 
 async function getDeviceFingerprint() {
+  // Nota: NO se incluye navigator.userAgent ni navigator.language aquí.
+  // El user-agent cambia solo cuando el navegador se actualiza (ej. Chrome
+  // sube de versión cada pocas semanas), lo que antes hacía que la huella
+  // cambiara sola y el desbloqueo guardado en localStorage dejara de
+  // coincidir — es decir, la app "olvidaba" la clave sin que el usuario
+  // hiciera nada. Usamos solo señales estables del dispositivo/navegador.
   const parts = [
-    navigator.userAgent, navigator.language,
     screen.width + 'x' + screen.height, screen.colorDepth,
     Intl.DateTimeFormat().resolvedOptions().timeZone,
     (navigator.hardwareConcurrency || ''), (navigator.platform || '')
@@ -887,6 +1113,7 @@ function subjectImportExceedsLimits(payload) {
 }
 
 async function importFullSubjects(payload) {
+  if (!currentAmbitoId) { showToast('⚠️ Abre un ámbito primero para importar'); return; }
   // ── Verificar firma oficial ───────────────────────────────────────
   const isOfficial = await verifyOfficialSignature(payload);
   if (!isOfficial) {
@@ -908,9 +1135,9 @@ async function importFullSubjects(payload) {
       updated++;
       return;
     }
-    // Nueva asignatura: restaurar todo
+    // Nueva asignatura: restaurar todo (se agrega al ámbito actualmente abierto)
     (s.classes || []).forEach(cls => restoreClassData(s.id, cls));
-    subjects.push({ id: s.id, name: s.name, icon: s.icon, color: s.color, classes: (s.classes||[]).map(c => ({ id: c.id, name: c.name })) });
+    subjects.push({ id: s.id, name: s.name, icon: s.icon, color: s.color, classes: (s.classes||[]).map(c => ({ id: c.id, name: c.name })), ambitoId: currentAmbitoId });
     added++;
   });
   save(); render();
@@ -997,7 +1224,7 @@ function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); }));
 
 sessionStorage.removeItem('__navStack');
-render();
+initView();
 tryConsumeIncomingImport();
 </script>
 </body>
