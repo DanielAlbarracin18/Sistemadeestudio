@@ -230,6 +230,7 @@
   <div class="header-timer" id="headerTimer" style="display:none">
     🕐 <span id="headerTimerVal">0:00.00</span>
   </div>
+  <button class="header-back" id="groupsBtn" style="display:none;margin-left:0.5rem" onclick="showGroupSelector()">📚 Grupos</button>
 </header>
 
 <div id="appRoot"></div>
@@ -279,6 +280,7 @@ let roundNum = 1;         // número de ronda dentro del grupo actual
 let posInRound = 0;       // posición dentro de roundQuestions
 let roundIncorrect = [];  // índices fallados en esta ronda -> alimentan la próxima ronda
 let firstAttempt = {};    // primer intento por pregunta: {correct, timeMs} (para el puntaje final)
+const groupDone = new Set(); // grupos ya dominados (todas correctas) en esta sesión
 
 function buildGroups() {
   groups = [];
@@ -420,10 +422,57 @@ if (!raw) {
     if (!Array.isArray(questions)) throw new Error();
     buildGroups();
     roundQuestions = groups.length ? [...groups[0]] : [];
-    renderPhase();
+    document.getElementById('groupsBtn').style.display = groups.length > 1 ? 'inline-block' : 'none';
+    if (groups.length > 1) showGroupSelector();
+    else renderPhase();
   } catch {
     root.innerHTML = `<div style="padding:2rem"><div class="error-box">❌ El JSON de cuestionario no es válido.</div></div>`;
   }
+}
+
+/* ── SELECTOR DE GRUPOS ── */
+function showGroupSelector() {
+  stopTimer();
+  document.getElementById('headerTimer').style.display = 'none';
+
+  if (!groups.length) { renderPhase(); return; }
+
+  const cardsHTML = groups.map((g, gi) => {
+    const attemptedAny = g.some(qi => qi in firstAttempt);
+    const isDone = groupDone.has(gi);
+    let statusLabel, statusStyle;
+    if (isDone) { statusLabel = '✅ Completado'; statusStyle = 'color:#4ade80'; }
+    else if (attemptedAny) { statusLabel = '🔶 En progreso'; statusStyle = 'color:#facc15'; }
+    else { statusLabel = '⚪ Sin iniciar'; statusStyle = 'color:rgba(255,255,255,0.45)'; }
+    const range = g.length > 1 ? `Preguntas ${g[0] + 1}–${g[g.length - 1] + 1}` : `Pregunta ${g[0] + 1}`;
+    return `
+      <button class="btn-show-options" style="display:flex;flex-direction:column;align-items:flex-start;gap:0.25rem;width:100%;max-width:420px;text-align:left;padding:1rem 1.25rem" onclick="selectGroup(${gi})">
+        <span style="font-size:1rem;font-weight:800">Grupo ${gi + 1}</span>
+        <span style="font-size:0.8rem;font-weight:500;opacity:0.8">${range} · ${g.length} pregunta${g.length === 1 ? '' : 's'}</span>
+        <span style="font-size:0.78rem;font-weight:700;${statusStyle}">${statusLabel}</span>
+      </button>`;
+  }).join('');
+
+  root.innerHTML = `
+    <div class="phase-reading">
+      <div class="phase-pill">📚 Elige un grupo</div>
+      <div class="reading-question" style="font-size:1.05rem">Selecciona el grupo de preguntas que quieres responder.</div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:0.75rem;margin-top:1rem">
+        ${cardsHTML}
+      </div>
+    </div>`;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function selectGroup(gi) {
+  groupIdx = gi;
+  roundQuestions = [...groups[gi]];
+  roundIncorrect = [];
+  roundNum = 1;
+  posInRound = 0;
+  phase = 'reading';
+  renderPhase();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function renderPhase() {
@@ -463,12 +512,16 @@ function renderRoundSummary(groupComplete) {
   const isLastGroup = groupIdx >= groups.length - 1;
 
   if (groupComplete) {
+    groupDone.add(groupIdx);
     root.innerHTML = `
       <div class="phase-reading">
         <div class="phase-pill">✅ Grupo completado</div>
         <div class="reading-num">Grupo ${groupIdx + 1} de ${groups.length}</div>
         <div class="reading-question">¡Excelente! Respondiste correctamente las ${total} pregunta${total === 1 ? '' : 's'} del grupo ${groupIdx + 1}.</div>
-        <button class="btn-show-options" onclick="${isLastGroup ? 'showResult()' : 'goToNextGroup()'}">${isLastGroup ? 'Ver resultado final →' : 'Siguiente grupo →'}</button>
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;justify-content:center;margin-top:0.5rem">
+          <button class="btn-show-options" onclick="${isLastGroup ? 'showResult()' : 'goToNextGroup()'}">${isLastGroup ? 'Ver resultado final →' : 'Siguiente grupo →'}</button>
+          <button class="btn btn-ghost" style="padding:0.75rem 1.5rem" onclick="showGroupSelector()">📚 Elegir otro grupo</button>
+        </div>
       </div>`;
   } else {
     root.innerHTML = `
@@ -476,10 +529,10 @@ function renderRoundSummary(groupComplete) {
         <div class="phase-pill">🔁 Ronda ${roundNum} completada</div>
         <div class="reading-num">Grupo ${groupIdx + 1} de ${groups.length}</div>
         <div class="reading-question">${correctCount} de ${total} correctas. Te faltan ${roundIncorrect.length} pregunta${roundIncorrect.length === 1 ? '' : 's'} por dominar en este grupo.</div>
-        <div class="reading-hint">Puedes seguir repasando este grupo hasta responderlo todo correctamente, o pasar al siguiente grupo cuando quieras.</div>
+        <div class="reading-hint">Puedes seguir repasando este grupo hasta responderlo todo correctamente, o elegir otro grupo cuando quieras.</div>
         <div style="display:flex;gap:0.75rem;flex-wrap:wrap;justify-content:center;margin-top:0.5rem">
           <button class="btn-show-options" onclick="startNextRound()">🔁 Repasar falladas (Ronda ${roundNum + 1})</button>
-          <button class="btn btn-ghost" style="padding:0.75rem 1.5rem" onclick="goToNextGroup()">⏭️ Pasar al siguiente grupo</button>
+          <button class="btn btn-ghost" style="padding:0.75rem 1.5rem" onclick="showGroupSelector()">📚 Elegir otro grupo</button>
         </div>
       </div>`;
   }
@@ -855,10 +908,12 @@ function resetQuiz() {
   localStorage.removeItem(`${KEY}_current_attempt`);
   quizCompleted = false;
   answered = {}; userAnswers = {}; firstAttempt = {};
+  groupDone.clear();
   currentIdx = 0; phase = 'reading'; timerElapsedMs = 0;
   groupIdx = 0; roundNum = 1; posInRound = 0; roundIncorrect = [];
   roundQuestions = groups.length ? [...groups[0]] : [];
-  renderPhase();
+  if (groups.length > 1) showGroupSelector();
+  else renderPhase();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 

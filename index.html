@@ -856,18 +856,22 @@ async function initDevUnlock() {
   if (el) el.textContent = _deviceFp;
   const fpBox = document.getElementById('fpQrBox');
   if (fpBox && fpBox.style.display !== 'none') qrRenderText(_deviceFp, 'fpQrCanvas');
-  if (localStorage.getItem('study_devkey_unlock_import') === _deviceFp) _unlockedImport = true;
-  if (localStorage.getItem('study_devkey_unlock_export') === _deviceFp) _unlockedExport = true;
-  // Compatibilidad hacia atras: si en una sesion anterior se guardo en sessionStorage
-  // (version vieja), migrarlo a localStorage para que quede permanente.
-  if (!_unlockedImport && sessionStorage.getItem('study_session_unlock_import') === 'true') {
+  // Bóveda de claves: campo vacío hasta que se ingresa la clave correcta;
+  // una vez correcta, queda "ocupado" con 'true' y ya no se vuelve a pedir.
+  // No depende de la huella del dispositivo (que puede variar), así que
+  // sobrevive a actualizaciones de la app igual que el resto del contenido.
+  if (localStorage.getItem('study_devkey_unlock_import') === 'true') _unlockedImport = true;
+  if (localStorage.getItem('study_devkey_unlock_export') === 'true') _unlockedExport = true;
+  // Compatibilidad hacia atras: desbloqueos guardados con el formato antiguo
+  // (huella de dispositivo o sessionStorage) se migran al campo nuevo.
+  if (!_unlockedImport && (localStorage.getItem('study_devkey_unlock_import') === _deviceFp || sessionStorage.getItem('study_session_unlock_import') === 'true')) {
     _unlockedImport = true;
-    localStorage.setItem('study_devkey_unlock_import', _deviceFp);
+    localStorage.setItem('study_devkey_unlock_import', 'true');
     sessionStorage.removeItem('study_session_unlock_import');
   }
-  if (!_unlockedExport && sessionStorage.getItem('study_session_unlock_export') === 'true') {
+  if (!_unlockedExport && (localStorage.getItem('study_devkey_unlock_export') === _deviceFp || sessionStorage.getItem('study_session_unlock_export') === 'true')) {
     _unlockedExport = true;
-    localStorage.setItem('study_devkey_unlock_export', _deviceFp);
+    localStorage.setItem('study_devkey_unlock_export', 'true');
     sessionStorage.removeItem('study_session_unlock_export');
   }
   applyUnlockState();
@@ -911,16 +915,16 @@ async function tryUnlock() {
     if (!_deviceFp) { showToast('⚠️ Código de dispositivo no listo'); return; }
     const expected = await computeDeviceKey(_deviceFp, salt);
     valid = (entered === expected);
-    if (valid) localStorage.setItem(_unlockPurpose === 'import' ? 'study_devkey_unlock_import' : 'study_devkey_unlock_export', _deviceFp);
+    if (valid) localStorage.setItem(_unlockPurpose === 'import' ? 'study_devkey_unlock_import' : 'study_devkey_unlock_export', 'true');
   } else {
     // Modo web: valida con clave de tiempo (ventana de 5 min),
-    // pero guarda el desbloqueo en localStorage atado al fingerprint
-    // del navegador — igual que en app — para que sea permanente.
+    // y guarda el desbloqueo en un campo fijo de localStorage
+    // (no atado a la huella del dispositivo) para que sea permanente
+    // y no se pierda si la huella cambia o la app se actualiza.
     const keys = validTimeKeys(salt);
     valid = keys.includes(entered);
     if (valid) {
-      if (!_deviceFp) _deviceFp = await getDeviceFingerprint();
-      localStorage.setItem(_unlockPurpose === 'import' ? 'study_devkey_unlock_import' : 'study_devkey_unlock_export', _deviceFp);
+      localStorage.setItem(_unlockPurpose === 'import' ? 'study_devkey_unlock_import' : 'study_devkey_unlock_export', 'true');
     }
   }
 

@@ -1396,7 +1396,7 @@ function applyUnlockState() {
     const act = document.getElementById('unlockActive');
     act.style.display = 'flex';
     document.getElementById('unlockActiveDetail').textContent =
-      _unlockMode === 'app' ? 'en este dispositivo' : 'para esta sesión';
+      'en este navegador/dispositivo';
     // Pegar JSON
     document.getElementById('pasteLockedMsg').style.display = 'none';
     document.getElementById('pasteUnlockedContent').style.display = 'block';
@@ -1443,7 +1443,7 @@ function applyExportUnlockState() {
     const act = document.getElementById('unlockActiveExp');
     act.style.display = 'flex';
     document.getElementById('unlockActiveDetailExp').textContent =
-      _unlockMode === 'app' ? 'en este dispositivo' : 'para esta sesión';
+      'en este navegador/dispositivo';
   } else {
     bar.classList.remove('unlocked');
     document.getElementById('unlockBarTitleExp').textContent = PURPOSE_LABEL[_unlockPurpose].locked;
@@ -1483,11 +1483,11 @@ async function tryUnlockExp() {
     if (!_deviceFp) { showToast('⚠️ Código de dispositivo no listo'); return; }
     const expected = await computeDeviceKey(_deviceFp, salt);
     valid = (entered === expected);
-    if (valid) localStorage.setItem(_unlockPurpose === 'import' ? 'study_devkey_unlock_import' : 'study_devkey_unlock_export', _deviceFp);
+    if (valid) localStorage.setItem(_unlockPurpose === 'import' ? 'study_devkey_unlock_import' : 'study_devkey_unlock_export', 'true');
   } else {
     const keys = validTimeKeys(salt);
     valid = keys.includes(entered);
-    if (valid) sessionStorage.setItem(_unlockPurpose === 'import' ? 'study_session_unlock_import' : 'study_session_unlock_export', 'true');
+    if (valid) localStorage.setItem(_unlockPurpose === 'import' ? 'study_devkey_unlock_import' : 'study_devkey_unlock_export', 'true');
   }
 
   if (valid) {
@@ -1535,13 +1535,23 @@ async function initDevUnlock() {
     if (fpBox && fpBox.style.display !== 'none') qrRenderText(_deviceFp, 'fpQrCanvas');
     const fpBoxExp = document.getElementById('fpQrBoxExp');
     if (fpBoxExp && fpBoxExp.style.display !== 'none') qrRenderText(_deviceFp, 'fpQrCanvasExp');
-    // Verificar si ya fue desbloqueado permanentemente (cada clave por separado)
-    if (localStorage.getItem('study_devkey_unlock_import') === _deviceFp) _unlockedImport = true;
-    if (localStorage.getItem('study_devkey_unlock_export') === _deviceFp) _unlockedExport = true;
-  } else {
-    // Navegador: nunca se guarda permanentemente, solo sesión
-    if (sessionStorage.getItem('study_session_unlock_import') === 'true') _unlockedImport = true;
-    if (sessionStorage.getItem('study_session_unlock_export') === 'true') _unlockedExport = true;
+  }
+  // Bóveda de claves: campo vacío hasta que se ingresa la clave correcta;
+  // una vez correcta, queda "ocupado" con 'true' y ya no se vuelve a pedir,
+  // igual en modo app o navegador, y sin depender de la huella del
+  // dispositivo (que puede variar) — así sobrevive a actualizaciones de la app.
+  if (localStorage.getItem('study_devkey_unlock_import') === 'true') _unlockedImport = true;
+  if (localStorage.getItem('study_devkey_unlock_export') === 'true') _unlockedExport = true;
+  // Compatibilidad hacia atras con el formato antiguo (sessionStorage).
+  if (!_unlockedImport && sessionStorage.getItem('study_session_unlock_import') === 'true') {
+    _unlockedImport = true;
+    localStorage.setItem('study_devkey_unlock_import', 'true');
+    sessionStorage.removeItem('study_session_unlock_import');
+  }
+  if (!_unlockedExport && sessionStorage.getItem('study_session_unlock_export') === 'true') {
+    _unlockedExport = true;
+    localStorage.setItem('study_devkey_unlock_export', 'true');
+    sessionStorage.removeItem('study_session_unlock_export');
   }
   applyUnlockState();
 }
@@ -1585,12 +1595,12 @@ async function tryUnlock() {
     if (!_deviceFp) { showToast('⚠️ Código de dispositivo no listo'); return; }
     const expected = await computeDeviceKey(_deviceFp, _SALT_EXPORT);
     valid = (entered === expected);
-    if (valid) localStorage.setItem('study_devkey_unlock_export', _deviceFp);
+    if (valid) localStorage.setItem('study_devkey_unlock_export', 'true');
   } else {
     // Navegador: verificar contra ventanas de tiempo actuales
     const keys = validTimeKeys(_SALT_EXPORT);
     valid = keys.includes(entered);
-    if (valid) sessionStorage.setItem('study_session_unlock_export', 'true');
+    if (valid) localStorage.setItem('study_devkey_unlock_export', 'true');
   }
 
   if (valid) {
