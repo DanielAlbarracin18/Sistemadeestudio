@@ -492,6 +492,11 @@ function startNextRound() {
   roundNum++;
   posInRound = 0;
   phase = 'reading';
+  // Limpiar respuestas previas de las preguntas que se repiten en esta nueva ronda
+  roundQuestions.forEach(qi => {
+    delete answered[qi];
+    delete userAnswers[qi];
+  });
   renderPhase();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
