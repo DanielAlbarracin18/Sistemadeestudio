@@ -270,6 +270,25 @@ let userAnswers = {};
 let answered = {};
 let quizCompleted = false;
 
+/* ── GRUPOS Y RONDAS ── */
+const GROUP_SIZE = 5;
+let groups = [];          // array de arrays de índices originales, de a 5
+let groupIdx = 0;         // grupo actual
+let roundQuestions = [];  // índices originales que hacen parte de la ronda actual
+let roundNum = 1;         // número de ronda dentro del grupo actual
+let posInRound = 0;       // posición dentro de roundQuestions
+let roundIncorrect = [];  // índices fallados en esta ronda -> alimentan la próxima ronda
+let firstAttempt = {};    // primer intento por pregunta: {correct, timeMs} (para el puntaje final)
+
+function buildGroups() {
+  groups = [];
+  for (let i = 0; i < questions.length; i += GROUP_SIZE) {
+    const g = [];
+    for (let k = i; k < Math.min(i + GROUP_SIZE, questions.length); k++) g.push(k);
+    groups.push(g);
+  }
+}
+
 /* ── TIMER (milisegundos) ── */
 let timerStartMs = 0;
 let timerElapsedMs = 0;
@@ -399,6 +418,8 @@ if (!raw) {
   try {
     questions = JSON.parse(raw);
     if (!Array.isArray(questions)) throw new Error();
+    buildGroups();
+    roundQuestions = groups.length ? [...groups[0]] : [];
     renderPhase();
   } catch {
     root.innerHTML = `<div style="padding:2rem"><div class="error-box">❌ El JSON de cuestionario no es válido.</div></div>`;
@@ -406,7 +427,11 @@ if (!raw) {
 }
 
 function renderPhase() {
-  if (currentIdx >= questions.length) { showResult(); return; }
+  if (!groups.length || groupIdx >= groups.length) { showResult(); return; }
+  if (posInRound >= roundQuestions.length) {
+    renderRoundSummary(roundIncorrect.length === 0);
+    return;
+  }
   if (phase === 'reading') renderReading();
   else renderAnswering();
 }
@@ -415,17 +440,72 @@ function renderPhase() {
 function renderReading() {
   stopTimer();
   document.getElementById('headerTimer').style.display = 'none';
+  currentIdx = roundQuestions[posInRound];
   const q = questions[currentIdx];
   const typeLabel = { seleccion: 'Selección única', multiple: 'Múltiple', texto: 'Completar' }[q.tipo] || q.tipo;
 
   root.innerHTML = `
     <div class="phase-reading">
       <div class="phase-pill">📖 Lee la pregunta</div>
-      <div class="reading-num">Pregunta ${currentIdx + 1} de ${questions.length} · ${typeLabel}</div>
+      <div class="reading-num">Grupo ${groupIdx + 1}/${groups.length} · Ronda ${roundNum} · Pregunta ${posInRound + 1} de ${roundQuestions.length} · ${typeLabel}</div>
       <div class="reading-question">${escH(q.pregunta)}</div>
       <div class="reading-hint">Cuando la hayas leído y comprendido, continúa para ver las opciones.<br>El tiempo empezará a correr entonces.</div>
       <button class="btn-show-options" onclick="showOptions()">Ver opciones →</button>
     </div>`;
+}
+
+/* ── RESUMEN DE RONDA / GRUPO ── */
+function renderRoundSummary(groupComplete) {
+  stopTimer();
+  document.getElementById('headerTimer').style.display = 'none';
+  const total = roundQuestions.length;
+  const correctCount = roundQuestions.filter(oi => answered[oi]?.correct).length;
+  const isLastGroup = groupIdx >= groups.length - 1;
+
+  if (groupComplete) {
+    root.innerHTML = `
+      <div class="phase-reading">
+        <div class="phase-pill">✅ Grupo completado</div>
+        <div class="reading-num">Grupo ${groupIdx + 1} de ${groups.length}</div>
+        <div class="reading-question">¡Excelente! Respondiste correctamente las ${total} pregunta${total === 1 ? '' : 's'} del grupo ${groupIdx + 1}.</div>
+        <button class="btn-show-options" onclick="${isLastGroup ? 'showResult()' : 'goToNextGroup()'}">${isLastGroup ? 'Ver resultado final →' : 'Siguiente grupo →'}</button>
+      </div>`;
+  } else {
+    root.innerHTML = `
+      <div class="phase-reading">
+        <div class="phase-pill">🔁 Ronda ${roundNum} completada</div>
+        <div class="reading-num">Grupo ${groupIdx + 1} de ${groups.length}</div>
+        <div class="reading-question">${correctCount} de ${total} correctas. Te faltan ${roundIncorrect.length} pregunta${roundIncorrect.length === 1 ? '' : 's'} por dominar en este grupo.</div>
+        <div class="reading-hint">Puedes seguir repasando este grupo hasta responderlo todo correctamente, o pasar al siguiente grupo cuando quieras.</div>
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;justify-content:center;margin-top:0.5rem">
+          <button class="btn-show-options" onclick="startNextRound()">🔁 Repasar falladas (Ronda ${roundNum + 1})</button>
+          <button class="btn btn-ghost" style="padding:0.75rem 1.5rem" onclick="goToNextGroup()">⏭️ Pasar al siguiente grupo</button>
+        </div>
+      </div>`;
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function startNextRound() {
+  roundQuestions = [...roundIncorrect];
+  roundIncorrect = [];
+  roundNum++;
+  posInRound = 0;
+  phase = 'reading';
+  renderPhase();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goToNextGroup() {
+  groupIdx++;
+  roundIncorrect = [];
+  roundNum = 1;
+  posInRound = 0;
+  phase = 'reading';
+  if (groupIdx >= groups.length) { showResult(); return; }
+  roundQuestions = [...groups[groupIdx]];
+  renderPhase();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* ── PHASE 2: ANSWERING ── */
@@ -437,17 +517,20 @@ function showOptions() {
 }
 
 function renderAnswering() {
+  currentIdx = roundQuestions[posInRound];
   const q = questions[currentIdx];
   const i = currentIdx;
   const isAnswered = !!answered[i];
   const typeLabel = { seleccion: 'Selección', multiple: 'Múltiple', texto: 'Completar' }[q.tipo] || q.tipo;
   const typeBadge = { seleccion: 'badge-sel', multiple: 'badge-mul', texto: 'badge-txt' }[q.tipo] || 'badge-sel';
 
+  const groupLabelHTML = `<div style="font-size:0.72rem;color:rgba(255,255,255,0.4);margin-bottom:0.5rem;letter-spacing:0.4px;text-transform:uppercase;font-weight:700">Grupo ${groupIdx + 1} de ${groups.length} · Ronda ${roundNum}</div>`;
+
   let dotsHTML = '<div class="progress-dots">';
-  questions.forEach((_, di) => {
+  roundQuestions.forEach((oi, di) => {
     let cls = 'dot';
-    if (di === i) cls += ' current';
-    else if (answered[di] !== undefined) cls += answered[di].correct ? ' correct' : ' incorrect';
+    if (di === posInRound) cls += ' current';
+    else if (answered[oi] !== undefined) cls += answered[oi].correct ? ' correct' : ' incorrect';
     dotsHTML += `<div class="${cls}"></div>`;
   });
   dotsHTML += '</div>';
@@ -533,23 +616,22 @@ function renderAnswering() {
     </div>`;
   } else {
     const timeStr2 = fmtMsLong(answered[i].timeMs);
-    const isLast = currentIdx >= questions.length - 1;
+    const isLastInRound = posInRound >= roundQuestions.length - 1;
     footerHTML = `<div class="q-footer">
       <span class="time-badge">⏱ ${timeStr2}</span>
-      ${isLast
-        ? `<button class="btn btn-next" onclick="showResult()" style="margin-left:auto">Ver resultado →</button>`
-        : `<button class="btn btn-next" onclick="nextQuestion()" style="margin-left:auto">Siguiente →</button>`}
+      <button class="btn btn-next" onclick="nextQuestion()" style="margin-left:auto">${isLastInRound ? 'Continuar →' : 'Siguiente →'}</button>
     </div>`;
   }
 
   root.innerHTML = `
     <div class="phase-answering">
+      ${groupLabelHTML}
       ${dotsHTML}
       ${!isAnswered ? timerHTML : ''}
       <div class="q-card">
         <div class="q-header">
           <div class="q-meta">
-            <span class="q-num-label">Pregunta ${i+1}</span>
+            <span class="q-num-label">Pregunta ${posInRound + 1}/${roundQuestions.length}</span>
             <span class="q-type-badge ${typeBadge}">${typeLabel}</span>
             ${isAnswered ? (answered[i].correct
               ? `<span style="color:#22c55e;font-size:0.8rem;font-weight:700;margin-left:auto">✓ Correcta</span>`
@@ -594,14 +676,17 @@ function submitQuestion(qi) {
   }
 
   stopTimer();
-  answered[qi] = { correct, timeMs: Math.round(timerElapsedMs) };
+  const timeMs = Math.round(timerElapsedMs);
+  answered[qi] = { correct, timeMs };
+  if (!(qi in firstAttempt)) firstAttempt[qi] = { correct, timeMs };
+  if (!correct && !roundIncorrect.includes(qi)) roundIncorrect.push(qi);
   saveCurrentAttemptToStorage();
   renderAnswering();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function nextQuestion() {
-  currentIdx++;
+  posInRound++;
   phase = 'reading';
   timerElapsedMs = 0;
   renderPhase();
@@ -615,27 +700,31 @@ function showResult() {
   document.getElementById('headerTimer').style.display = 'none';
   localStorage.removeItem(`${KEY}_current_attempt`);
 
-  const correct = Object.values(answered).filter(a => a.correct).length;
+  const correct = Object.keys(firstAttempt).filter(i => firstAttempt[i].correct).length;
   const total = questions.length;
   const pct = Math.round(correct / total * 100);
   const emoji = pct >= 80 ? '🏆' : pct >= 60 ? '👍' : '📚';
   const msg = pct >= 80 ? '¡Excelente dominio del tema!' : pct >= 60 ? 'Buen esfuerzo, sigue repasando.' : 'Sigue estudiando, vas a lograrlo.';
   const scoreClass = pct >= 80 ? 'great' : pct >= 60 ? 'ok' : 'low';
 
-  const allTimes = Object.values(answered).map(a => a.timeMs);
-  const totalTime = allTimes.reduce((a,b) => a+b, 0);
-  const avgTime = allTimes.length ? Math.round(totalTime / allTimes.length) : 0;
-  const fastQ = allTimes.indexOf(Math.min(...allTimes)) + 1;
-  const slowQ = allTimes.indexOf(Math.max(...allTimes)) + 1;
+  const firstEntries = Object.entries(firstAttempt).map(([idx, a]) => ({ idx: Number(idx), timeMs: a.timeMs }));
+  const totalTime = firstEntries.reduce((a, t) => a + t.timeMs, 0);
+  const avgTime = firstEntries.length ? Math.round(totalTime / firstEntries.length) : 0;
+  let fastQ = 0, slowQ = 0, minT = Infinity, maxT = -Infinity;
+  firstEntries.forEach(t => {
+    if (t.timeMs < minT) { minT = t.timeMs; fastQ = t.idx + 1; }
+    if (t.timeMs > maxT) { maxT = t.timeMs; slowQ = t.idx + 1; }
+  });
+  if (!firstEntries.length) { minT = 0; maxT = 0; }
 
   try {
     const histKey = `${KEY_PREFIX}_quiz_history`;
     const history = JSON.parse(localStorage.getItem(histKey) || '[]');
     const answeredArr = questions.map((q, i) => ({
       pregunta: q.pregunta,
-      correct: answered[i]?.correct ?? false,
-      timeMs: answered[i]?.timeMs ?? 0,
-      answered: answered[i] !== undefined
+      correct: firstAttempt[i]?.correct ?? false,
+      timeMs: firstAttempt[i]?.timeMs ?? 0,
+      answered: firstAttempt[i] !== undefined
     }));
     history.push({
       quizId: qid || 'legacy',
@@ -666,8 +755,8 @@ function showResult() {
       <div class="result-time-summary">
         <div class="t-row"><span>⏱ Tiempo total</span><span>${fmtMsLong(totalTime)}</span></div>
         <div class="t-row"><span>📊 Promedio por pregunta</span><span>${fmtMsLong(avgTime)}</span></div>
-        <div class="t-row"><span>⚡ Pregunta más rápida</span><span>P${fastQ} · ${fmtMsLong(Math.min(...allTimes))}</span></div>
-        <div class="t-row"><span>🐢 Pregunta más lenta</span><span>P${slowQ} · ${fmtMsLong(Math.max(...allTimes))}</span></div>
+        <div class="t-row"><span>⚡ Pregunta más rápida</span><span>P${fastQ} · ${fmtMsLong(minT)}</span></div>
+        <div class="t-row"><span>🐢 Pregunta más lenta</span><span>P${slowQ} · ${fmtMsLong(maxT)}</span></div>
       </div>
       <div class="result-actions">
         <button class="btn btn-ghost" onclick="reviewAnswers()">📝 Revisar respuestas</button>
@@ -760,8 +849,10 @@ function reviewAnswers() {
 function resetQuiz() {
   localStorage.removeItem(`${KEY}_current_attempt`);
   quizCompleted = false;
-  answered = {}; userAnswers = {};
+  answered = {}; userAnswers = {}; firstAttempt = {};
   currentIdx = 0; phase = 'reading'; timerElapsedMs = 0;
+  groupIdx = 0; roundNum = 1; posInRound = 0; roundIncorrect = [];
+  roundQuestions = groups.length ? [...groups[0]] : [];
   renderPhase();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
