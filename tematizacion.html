@@ -1849,6 +1849,11 @@ let ttsRequestId  = 0;    // invalida callbacks pendientes del motor nativo
 let ttsRate       = 1.0;
 const TTS_RATES   = [0.8, 1.0, 1.25, 1.5, 1.75, 2.0];
 
+// Bandera persistente: indica que hay una lectura en curso aunque el usuario
+// navegue a Contenido/Glosario/Cuestionario/Tematización y esta página se
+// recargue por completo (cada sección es un archivo .html distinto).
+const TTS_SESSION_KEY = `${KEY_PREFIX}_tts_session_active`;
+
 // En Cordova Android se usa el plugin nativo (android.speech.tts). El WebView
 // no siempre implementa speechSynthesis, por lo que no se debe usar como
 // requisito para habilitar la lectura dentro de la aplicación.
@@ -2176,56 +2181,66 @@ function startListenClass(scope) {
   ttsCurUtterIdx = 0;
   ttsSpeaking = true;
   ttsPaused = false;
+  localStorage.setItem(TTS_SESSION_KEY, '1');
 
   document.getElementById('ttsBar').classList.add('show');
   document.getElementById('btnListenClass').textContent = '⏹️ Detener lectura';
   document.getElementById('ttsPauseBtn').textContent = '⏸️ Pausar';
-  // Android deja que la pantalla apague el WebView y retrasa sus callbacks.
-  // La cola nativa evita huecos entre frases mientras el servicio en primer
-  // plano mantiene el proceso de lectura activo.
-  if (hasNativeTTS() && typeof window.TTS.speakQueue === 'function') {
-    speakNativeQueue();
+  document.getElementById('ttsPauseBtn').style.display = '';
+  document.getElementById('ttsRateBtn').style.display = '';
+
+  if (hasNativeTTS()) {
+    dispatchNativeFrom(0);
   } else {
     speakNextUtterance();
   }
 }
 
-function speakNativeQueue() {
-  if (!ttsSpeaking || ttsPaused || !ttsUtterQueue.length) return;
+// Entrega TODOS los fragmentos restantes al plugin nativo de una sola vez,
+// sin esperar a que cada uno termine. El motor de Android encola las
+// frases internamente (TTS.speak "adds an utterance to a queue and returns
+// immediately"), así que la lectura continúa aunque el usuario navegue a
+// Contenido/Glosario/Cuestionario/Tematización y esta página (y su
+// JavaScript) se destruya por completo al cargarse la otra. Antes se
+// esperaba el callback de cada frase para pedir la siguiente, y ese
+// callback se perdía al cambiar de página, cortando el audio.
+function dispatchNativeFrom(startIdx) {
+  if (!ttsUtterQueue.length) return;
   const requestId = ++ttsRequestId;
-  const first = ttsUtterQueue[0];
+  const first = ttsUtterQueue[startIdx] || ttsUtterQueue[0];
   document.getElementById('ttsStatusTitle').textContent = first ? ttsChunks[first.chunkIndex].label : '';
-  document.getElementById('ttsStatusSub').textContent = `Leyendo ${ttsUtterQueue.length} fragmentos`;
+  const remaining = ttsUtterQueue.slice(startIdx);
+  document.getElementById('ttsStatusSub').textContent = `Leyendo ${remaining.length} fragmentos`;
+
+  // speak() usa QUEUE_FLUSH: invocarlo en un bucle cancela cada fragmento
+  // anterior. speakQueue deja la cola completa en el motor nativo, sin
+  // depender de que el WebView despierte entre una frase y la siguiente.
   window.TTS.speakQueue({
-    texts: ttsUtterQueue.map(item => item.text),
+    texts: remaining.map(item => item.text),
     locale: 'es-ES',
     rate: ttsRate
   }, () => {
-    if (requestId === ttsRequestId && ttsSpeaking && !ttsPaused) finishListenClass();
+    if (requestId !== ttsRequestId || !ttsSpeaking || ttsPaused) return;
+    ttsCurUtterIdx = ttsUtterQueue.length;
+    finishListenClass();
   }, () => {
-    if (requestId === ttsRequestId && ttsSpeaking && !ttsPaused) finishListenClass();
+    if (requestId !== ttsRequestId || !ttsSpeaking || ttsPaused) return;
+    stopListenClass();
+    showToast('⚠️ La lectura se interrumpió. Inténtalo de nuevo.');
   });
 }
 
 function speakNextUtterance() {
+  // Ruta de respaldo solo para navegadores sin plugin nativo (Web Speech).
+  // Esta API pertenece a la pestaña/documento actual: si el usuario navega
+  // a otra página, el navegador la destruye y el audio se corta. No hay
+  // forma de evitar esto sin dejar de recargar la página al navegar.
   if (!ttsSpeaking || ttsPaused) return;
   if (ttsCurUtterIdx >= ttsUtterQueue.length) { finishListenClass(); return; }
 
   const { chunkIndex, text } = ttsUtterQueue[ttsCurUtterIdx];
   document.getElementById('ttsStatusTitle').textContent = ttsChunks[chunkIndex].label;
   document.getElementById('ttsStatusSub').textContent = `Parte ${ttsCurUtterIdx + 1} de ${ttsUtterQueue.length}`;
-
-  if (hasNativeTTS()) {
-    const requestId = ++ttsRequestId;
-    const next = () => {
-      // Ignora callbacks de frases canceladas al pausar o detener.
-      if (requestId !== ttsRequestId || !ttsSpeaking || ttsPaused) return;
-      ttsCurUtterIdx++;
-      speakNextUtterance();
-    };
-    window.TTS.speak({ text, locale: 'es-ES', rate: ttsRate }, next, next);
-    return;
-  }
 
   const utt = new SpeechSynthesisUtterance(text);
   utt.lang = ttsVoice ? ttsVoice.lang : 'es-ES';
@@ -2246,10 +2261,13 @@ function cycleTtsRate() {
   // fragmento en curso para aplicarla de inmediato.
   if (ttsSpeaking && !ttsPaused) {
     ttsRequestId++;
-    if (hasNativeTTS()) clearNativeTTS();
-    else if (hasWebTTS()) speechSynthesis.cancel();
-    if (hasNativeTTS() && typeof window.TTS.speakQueue === 'function') speakNativeQueue();
-    else speakNextUtterance();
+    if (hasNativeTTS()) {
+      clearNativeTTS();
+      dispatchNativeFrom(ttsCurUtterIdx);
+    } else if (hasWebTTS()) {
+      speechSynthesis.cancel();
+      speakNextUtterance();
+    }
   }
 }
 
@@ -2258,8 +2276,7 @@ function pauseResumeListen() {
   if (ttsPaused) {
     ttsPaused = false;
     document.getElementById('ttsPauseBtn').textContent = '⏸️ Pausar';
-    if (hasNativeTTS() && typeof window.TTS.speakQueue === 'function') speakNativeQueue();
-    else if (hasNativeTTS()) speakNextUtterance();
+    if (hasNativeTTS()) dispatchNativeFrom(ttsCurUtterIdx);
     else speechSynthesis.resume();
   } else {
     ttsPaused = true;
@@ -2277,19 +2294,44 @@ function stopListenClass() {
   ttsSpeaking = false;
   ttsPaused = false;
   ttsRequestId++;
+  localStorage.removeItem(TTS_SESSION_KEY);
   if (hasNativeTTS()) clearNativeTTS();
   else if (hasWebTTS()) speechSynthesis.cancel();
   document.getElementById('ttsBar').classList.remove('show');
   document.getElementById('btnListenClass').textContent = '🔊 Escuchar clase';
+  document.getElementById('ttsPauseBtn').style.display = '';
+  document.getElementById('ttsRateBtn').style.display = '';
 }
 
 function finishListenClass() {
   ttsSpeaking = false;
   ttsPaused = false;
+  localStorage.removeItem(TTS_SESSION_KEY);
   if (hasNativeTTS()) clearNativeTTS();
   document.getElementById('ttsBar').classList.remove('show');
   document.getElementById('btnListenClass').textContent = '🔊 Escuchar clase';
+  document.getElementById('ttsPauseBtn').style.display = '';
+  document.getElementById('ttsRateBtn').style.display = '';
   showToast('✅ Lectura de la clase finalizada');
+}
+
+// ── Restaurar la barra al volver a "tematización" mientras la lectura sigue ──
+// Como Contenido/Glosario/Cuestionario/Tematización son páginas separadas,
+// al volver aquí esta página se recarga desde cero y pierde el detalle de
+// en qué fragmento iba (eso vive solo en el motor nativo). Lo único que
+// necesitamos es reflejar que "sigue sonando" y permitir detenerla; el
+// control fino (pausa/velocidad) solo aplica a una sesión iniciada en esta
+// misma carga de página, así que se oculta para no prometer algo que no
+// podemos retomar con precisión.
+if (localStorage.getItem(TTS_SESSION_KEY) === '1') {
+  ttsSpeaking = true;
+  ttsPaused = false;
+  document.getElementById('ttsBar').classList.add('show');
+  document.getElementById('btnListenClass').textContent = '⏹️ Detener lectura';
+  document.getElementById('ttsStatusTitle').textContent = '🔊 La lectura sigue sonando…';
+  document.getElementById('ttsStatusSub').textContent = 'Iniciada antes de entrar aquí';
+  document.getElementById('ttsPauseBtn').style.display = 'none';
+  document.getElementById('ttsRateBtn').style.display = 'none';
 }
 </script>
 </body>
