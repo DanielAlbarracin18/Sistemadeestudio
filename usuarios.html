@@ -70,6 +70,10 @@
 
   .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: #1a1a2e; color: #fff; padding: 0.75rem 1.25rem; border-radius: 10px; font-size: 0.875rem; opacity: 0; transform: translateY(10px); transition: all 0.25s; pointer-events: none; z-index: 200; max-width: 300px; }
   .toast.show { opacity: 1; transform: translateY(0); }
+
+  .apk-download-section { display: none; margin-top: 2.5rem; padding-top: 1.75rem; border-top: 1px solid #e5e7eb; text-align: center; }
+  .apk-download-section.show { display: block; }
+  .apk-download-section p { font-size: 0.8rem; color: #9ca3af; margin-top: 0.6rem; }
 </style>
   <script src="_nav.js"></script>
   <script src="cordova.js" onerror="void 0"></script>
@@ -98,6 +102,11 @@
   <div class="empty-state" id="emptyState" style="display:none;">
     <div class="icon">👤</div>
     <p>No tienes usuarios todavía.<br>Crea uno para comenzar.</p>
+  </div>
+
+  <div class="apk-download-section" id="apkDownloadSection">
+    <a href="Sistemadeestudio.apk" download class="btn btn-success">⬇️ Descargar App (APK)</a>
+    <p>Instala la aplicación en tu dispositivo Android</p>
   </div>
 </div>
 
@@ -281,6 +290,18 @@ function showToast(msg) {
 }
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); }));
+
+// ── Enlace de descarga del APK (solo si el archivo existe) ─────────
+function checkApkAvailability() {
+  fetch('Sistemadeestudio.apk', { method: 'HEAD' })
+    .then(res => {
+      if (res.ok) {
+        document.getElementById('apkDownloadSection').classList.add('show');
+      }
+    })
+    .catch(() => { /* no existe o no accesible: no se muestra nada */ });
+}
+checkApkAvailability();
 
 render();
 </script>
