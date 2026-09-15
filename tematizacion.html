@@ -701,17 +701,38 @@ const TYPE_MAP = {
   narrativa_historica: { label: 'Narrativa histórica', icon: '📜', keys: ['arcos'] },
   ensenanzas:         { label: 'Enseñanzas',           icon: '🕊️', keys: ['ensenanzas'] },
   procedimental:      { label: 'Procedimental',         icon: '⚙️', keys: ['estructura_procedimental'] },
+  taller:             { label: 'Taller / Ejercicios',   icon: '🧮', keys: ['mapa_ejercicios','formulas_clave'] },
   prescriptivo:       { label: 'Prescriptivo/Normativo',icon: '⚖️', keys: ['fundamento_normativo','estructura_normativa'] },
   leccion:            { label: 'Lección (rompecabezas)',icon: '🧩', keys: ['formato_rompecabezas_leccion'] },
   matutina:           { label: 'Matutina',               icon: '🌅', keys: ['versiculo','oracion'] },
   academico:          { label: 'Académico/Esquema',     icon: '🎓', keys: ['metadatos','estructura_tesis'] },
 };
 
-function detectType(data) {
-  const rootKeys = Object.keys(data);
+function detectTypeFlat(data) {
+  const rootKeys = Object.keys(data || {});
   for (const [typeId, cfg] of Object.entries(TYPE_MAP)) {
     if (cfg.keys.every(k => rootKeys.includes(k))) return typeId;
     if (cfg.keys.some(k => rootKeys.includes(k))) return typeId;
+  }
+  return null;
+}
+
+// Detecta el tipo aunque el documento venga envuelto dentro de una o más
+// claves contenedoras (ej: { "procedimiento_general_mur": { ... } }).
+function detectType(data) {
+  if (Array.isArray(data)) {
+    for (const item of data) { const t = detectTypeFlat(item); if (t) return t; }
+    return 'academico';
+  }
+  const direct = detectTypeFlat(data);
+  if (direct) return direct;
+  for (const v of Object.values(data || {})) {
+    if (v && typeof v === 'object') {
+      const t = Array.isArray(v)
+        ? v.map(detectTypeFlat).find(Boolean)
+        : detectTypeFlat(v);
+      if (t) return t;
+    }
   }
   return 'academico'; // fallback
 }
@@ -874,6 +895,37 @@ const JSON_TEMPLATES = {
     productos_generados: [
       { nombre_producto: "Nombre del producto", formato: "Formato del producto", descripcion: "Descripción del producto" }
     ]
+  },
+
+  taller: {
+    metadatos: {
+      titulo: "Título del taller o mapa de resolución",
+      autor_o_entidad: "Autor o entidad responsable",
+      tipo_documento: "Mapa de resolución",
+      version: "1.0",
+      ambito_de_aplicacion: "Ámbito o tema de los ejercicios",
+      fecha: "AAAA-MM-DD"
+    },
+    formulas_clave: [
+      "Fórmula 1",
+      "Fórmula 2",
+      "Conversión o regla útil"
+    ],
+    mapa_ejercicios: [
+      {
+        numero: 1,
+        tipo: "Tipo de ejercicio",
+        datos_dados: { dato_1: "Valor con unidad", dato_2: "Valor con unidad" },
+        incognitas: ["Qué se pide"],
+        formulas: ["Fórmula aplicable"],
+        pasos: ["Paso 1", "Paso 2", "Paso 3"],
+        cuidado: "Error frecuente a evitar"
+      }
+    ],
+    plantilla_respuesta: {
+      numero: "", datos: [], incognita: "", formula: "", despeje: "",
+      sustitucion: "", resultado: "", unidades: "", verificacion: ""
+    }
   },
 
   prescriptivo: {
@@ -1290,8 +1342,9 @@ function isBrowser() { return !isApp(); }
 let _deviceFp = null;
 
 async function getDeviceFingerprint() {
+  // No usar userAgent ni language: Android System WebView puede cambiarlos
+  // después de una actualización, aunque siga siendo el mismo dispositivo.
   const parts = [
-    navigator.userAgent, navigator.language,
     screen.width + 'x' + screen.height, screen.colorDepth,
     Intl.DateTimeFormat().resolvedOptions().timeZone,
     (navigator.hardwareConcurrency || ''), (navigator.platform || '')
