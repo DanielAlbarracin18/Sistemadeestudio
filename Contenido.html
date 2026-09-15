@@ -497,6 +497,28 @@
   .qm-rs { text-align: center; }
   .qm-rs .num { font-size: 1.3rem; font-weight: 700; }
   .qm-rs .lbl { font-size: 0.7rem; color: rgba(255,255,255,0.4); margin-top: 0.1rem; }
+  /* ── Documentos múltiples dentro de un mismo JSON ── */
+  .docwrap { margin-bottom: 2.5rem; }
+  .doc-head { display: flex; align-items: center; gap: .6rem; margin: 0 0 1.25rem; padding: .7rem 1rem; background: var(--ink); color: #fff; border-radius: 12px; }
+  .doc-head .d-ic { font-size: 1.1rem; }
+  .doc-head .d-tt { font-size: .92rem; font-weight: 700; flex: 1; }
+  .doc-head .d-bd { font-size: .66rem; padding: .15rem .55rem; border-radius: 99px; font-weight: 700; background: rgba(255,255,255,.15); }
+
+  /* ── Bloque taller / mapa de ejercicios ── */
+  .frm-row { display: flex; flex-wrap: wrap; gap: .45rem; }
+  .frm { font-family: ui-monospace, 'Cascadia Code', Menlo, monospace; font-size: .8rem; background: var(--white); border: 1px solid var(--rule); border-left: 3px solid var(--teal); border-radius: 8px; padding: .35rem .7rem; color: var(--ink); }
+  .ej-card { background: var(--white); border: 1px solid var(--rule); border-radius: 12px; padding: 1rem 1.1rem; margin-bottom: .75rem; }
+  .ej-top { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
+  .ej-num { width: 30px; height: 30px; border-radius: 8px; background: var(--teal); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .82rem; flex-shrink: 0; }
+  .ej-tipo { font-size: .88rem; font-weight: 700; flex: 1; }
+  .ej-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .75rem; }
+  .ej-blk .t-label { margin-bottom: .3rem; }
+  .ej-care { margin-top: .6rem; font-size: .82rem; background: var(--amber-lt); color: #92400e; border-radius: 8px; padding: .45rem .7rem; }
+  .kv { font-size: .84rem; line-height: 1.6; }
+  .kv b { color: var(--ink-soft); font-weight: 600; }
+  .plantilla-table { width: 100%; border-collapse: collapse; background: var(--white); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+  .plantilla-table td { border-bottom: 1px solid var(--rule); padding: .55rem .8rem; font-size: .84rem; }
+  .plantilla-table td:first-child { width: 38%; font-weight: 600; color: var(--ink-soft); background: #faf9f6; }
 </style>
 </head>
 <body>
@@ -624,20 +646,55 @@ const TYPE_MAP = {
   narrativa_historica: { label: 'Narrativa histórica', icon: '📜', color: '#d97706', bg: '#fef3c7', keys: ['arcos'] },
   ensenanzas:          { label: 'Enseñanzas',           icon: '🕊️', color: '#7c3aed', bg: '#f3e8ff', keys: ['ensenanzas'] },
   procedimental:       { label: 'Procedimental',         icon: '⚙️', color: '#0891b2', bg: '#e0f2fe', keys: ['estructura_procedimental'] },
+  taller:              { label: 'Taller / Ejercicios',   icon: '🧮', color: '#059669', bg: '#d1fae5', keys: ['mapa_ejercicios'] },
   prescriptivo:        { label: 'Prescriptivo/Normativo',icon: '⚖️', color: '#dc2626', bg: '#ffe4e6', keys: ['fundamento_normativo'] },
   leccion:             { label: 'Lección (rompecabezas)',icon: '🧩', color: '#059669', bg: '#d1fae5', keys: ['formato_rompecabezas_leccion'] },
   matutina:            { label: 'Matutina',               icon: '🌅', color: '#b45309', bg: '#fef3c7', keys: ['versiculo','oracion'] },
   academico:           { label: 'Académico/Esquema',     icon: '🎓', color: '#4f46e5', bg: '#e0e7ff', keys: ['metadatos','estructura_tesis'] },
 };
 function detectType(data) {
-  const rootKeys = Object.keys(data);
+  const rootKeys = Object.keys(data || {});
   if (rootKeys.includes('formato_rompecabezas_leccion')) return 'leccion';
   if (rootKeys.includes('arcos')) return 'narrativa_historica';
   if (rootKeys.includes('ensenanzas')) return 'ensenanzas';
   if (rootKeys.includes('estructura_procedimental')) return 'procedimental';
+  if (rootKeys.includes('mapa_ejercicios') || rootKeys.includes('formulas_clave')) return 'taller';
   if (rootKeys.includes('fundamento_normativo') || rootKeys.includes('estructura_normativa')) return 'prescriptivo';
   if (rootKeys.includes('versiculo') || rootKeys.includes('oracion')) return 'matutina';
   return 'academico';
+}
+
+/* Claves que identifican un documento real (no un simple contenedor) */
+const DOC_KEYS = ['formato_rompecabezas_leccion','arcos','ensenanzas','estructura_procedimental',
+  'mapa_ejercicios','formulas_clave','fundamento_normativo','estructura_normativa',
+  'versiculo','oracion','estructura_tesis','metadatos','proposito','argumentacion'];
+
+function isDoc(o) {
+  return o && typeof o === 'object' && !Array.isArray(o)
+    && Object.keys(o).some(k => DOC_KEYS.includes(k));
+}
+
+/* Convierte el JSON en una lista de documentos renderizables.
+   Acepta: (a) documento plano, (b) objeto contenedor con uno o varios
+   documentos anidados, (c) arreglo de documentos. */
+function unwrapDocs(data) {
+  if (Array.isArray(data)) {
+    const arr = data.filter(isDoc).map(d => ({ key: null, data: d }));
+    if (arr.length) return arr;
+  }
+  if (isDoc(data)) return [{ key: null, data }];
+  const nested = [];
+  Object.entries(data || {}).forEach(([k, v]) => {
+    if (isDoc(v)) nested.push({ key: k, data: v });
+    else if (Array.isArray(v)) v.filter(isDoc).forEach(x => nested.push({ key: k, data: x }));
+  });
+  if (nested.length) return nested;
+  return [{ key: null, data: data }];
+}
+
+function prettyKey(k) {
+  if (!k) return '';
+  return k.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -924,7 +981,73 @@ function renderProcedimental(d) {
     b+=`</div>`;
     html += mkSection('📦','Productos generados','si-t', b, false);
   }
+  html += tallerSections(d);
   return html || `<div class="error-box">El JSON procedimental está vacío.</div>`;
+}
+
+/* ── 4b. TALLER / MAPA DE EJERCICIOS ──────────────────────────── */
+function tallerSections(d) {
+  let html = '';
+
+  const fx = d.formulas_clave || [];
+  if (fx.length) {
+    const b = `<div class="frm-row">${fx.map(f => `<span class="frm">${esc(String(f))}</span>`).join('')}</div>`;
+    html += mkSection('🧮','Fórmulas clave','si-e', b, true);
+  }
+
+  const ejs = d.mapa_ejercicios || [];
+  if (ejs.length) {
+    let b = '';
+    ejs.forEach((e, i) => {
+      b += `<div class="ej-card">
+        <div class="ej-top">
+          <div class="ej-num">${esc(String(e.numero ?? (i+1)))}</div>
+          <div class="ej-tipo">${esc(e.tipo || 'Ejercicio')}</div>
+        </div>
+        <div class="ej-grid">`;
+      if (hasVal(e.datos_dados)) {
+        const rows = Object.entries(e.datos_dados)
+          .map(([k,v]) => `<div class="kv"><b>${esc(prettyKey(k))}:</b> ${esc(String(v))}</div>`).join('');
+        b += `<div class="tile av ej-blk"><div class="t-label">Datos dados</div>${rows}</div>`;
+      }
+      b += mkListTile('Incógnitas', e.incognitas, 'aa');
+      if (hasVal(e.formulas))
+        b += `<div class="tile at ej-blk"><div class="t-label">Fórmulas</div><div class="frm-row" style="margin-top:.3rem;">${e.formulas.map(f=>`<span class="frm">${esc(String(f))}</span>`).join('')}</div></div>`;
+      b += mkListTile('Pasos', e.pasos, 'ae');
+      b += `</div>`;
+      if (hasVal(e.cuidado)) b += `<div class="ej-care">⚠️ ${esc(e.cuidado)}</div>`;
+      b += `</div>`;
+    });
+    html += mkSection('📐','Mapa de ejercicios','si-a', b, true);
+  }
+
+  const pl = d.plantilla_respuesta || {};
+  if (hasVal(pl)) {
+    const rows = Object.keys(pl)
+      .map(k => `<tr><td>${esc(prettyKey(k))}</td><td>${hasVal(pl[k]) ? esc(String(pl[k])) : '—'}</td></tr>`).join('');
+    html += mkSection('📝','Plantilla de respuesta','si-s', `<table class="plantilla-table"><tbody>${rows}</tbody></table>`, false);
+  }
+
+  return html;
+}
+
+function renderTaller(d) {
+  let html = '';
+  const m = d.metadatos || {};
+  if (hasVal(m)) {
+    let b = '';
+    if (hasVal(m.titulo)) b += `<div class="tile av" style="margin-bottom:1rem;"><div class="t-label">Título</div><div class="t-val big">${esc(m.titulo)}</div></div>`;
+    b += `<div class="g4">`;
+    b += mkTile('Autor o entidad',      m.autor_o_entidad,      'as');
+    b += mkTile('Tipo de documento',    m.tipo_documento,       'as');
+    b += mkTile('Versión',              m.version,              'as');
+    b += mkTile('Ámbito de aplicación', m.ambito_de_aplicacion, 'as');
+    b += mkTile('Fecha',                m.fecha,                'as');
+    b += `</div>`;
+    html += mkSection('📋','Metadatos','si-v', b, true);
+  }
+  html += tallerSections(d);
+  return html || `<div class="error-box">El JSON de taller está vacío.</div>`;
 }
 
 /* ── 5. PRESCRIPTIVO/NORMATIVO ────────────────────────────────── */
@@ -1235,13 +1358,14 @@ function initContenido() {
     return;
   }
   try {
-    const data = JSON.parse(raw);
-    const tipo  = detectType(data);
-    const cfg   = TYPE_MAP[tipo];
+    const data  = JSON.parse(raw);
+    const docs  = unwrapDocs(data);
+    const tipo  = detectType(docs[0].data);
+    const cfg   = TYPE_MAP[tipo] || TYPE_MAP.academico;
 
     const badge = document.getElementById('headerBadge');
     badge.style.display = 'inline-block';
-    badge.textContent   = `${cfg.icon} ${cfg.label}`;
+    badge.textContent   = `${cfg.icon} ${cfg.label}${docs.length > 1 ? ` +${docs.length - 1}` : ''}`;
     badge.style.background = cfg.bg;
     badge.style.color      = cfg.color;
 
@@ -1250,14 +1374,25 @@ function initContenido() {
       narrativa_historica: renderNarrativa,
       ensenanzas:          renderEnsenanzas,
       procedimental:       renderProcedimental,
+      taller:              renderTaller,
       prescriptivo:        renderPrescriptivo,
       leccion:             renderLeccion,
       matutina:            renderMatutina,
     };
-    root.innerHTML = (renderers[tipo] || renderAcademico)(data);
+
+    root.innerHTML = docs.map(doc => {
+      const t = detectType(doc.data);
+      const c = TYPE_MAP[t] || TYPE_MAP.academico;
+      const head = (docs.length > 1)
+        ? `<div class="doc-head"><span class="d-ic">${c.icon}</span>
+             <span class="d-tt">${esc(doc.data?.metadatos?.titulo || prettyKey(doc.key) || c.label)}</span>
+             <span class="d-bd">${esc(c.label)}</span></div>`
+        : '';
+      return `<div class="docwrap">${head}${(renderers[t] || renderAcademico)(doc.data)}</div>`;
+    }).join('');
 
     // Pasar datos al motor de práctica y mostrar botón
-    _quizData = data;
+    _quizData = docs[0].data;
     _quizType = tipo;
     const fab = document.getElementById('quizFab');
     if (fab) fab.style.display = 'flex';
