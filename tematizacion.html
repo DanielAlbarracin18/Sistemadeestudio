@@ -737,6 +737,40 @@ function detectType(data) {
   return 'academico'; // fallback
 }
 
+// Extrae un título representativo directamente del JSON pegado/cargado,
+// para no tener que pedirle al usuario que escriba un nombre a mano.
+// Cubre los lugares donde los distintos formatos (tematización, académico,
+// narrativa histórica, enseñanzas, matutina, etc.) suelen guardar su título.
+function extractJsonTitle(data) {
+  if (!data) return null;
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const t = extractJsonTitle(item);
+      if (t) return t;
+    }
+    return null;
+  }
+  if (typeof data !== 'object') return null;
+  const candidates = [
+    data.titulo,
+    data.metadatos?.titulo,
+    data.fuente?.titulo,
+    data.nombre
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  // Si el título está anidado dentro de una clave contenedora
+  // (ej: { "procedimiento_general_mur": { titulo: "..." } })
+  for (const v of Object.values(data)) {
+    if (v && typeof v === 'object') {
+      const t = extractJsonTitle(v);
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
 // ── Plantillas JSON de ejemplo ─────────────────────────────────────
 const JSON_TEMPLATES = {
 
@@ -1694,12 +1728,17 @@ function readFile(file) {
     parsedFileData = null; return;
   }
   autoFilename = file.name.replace(/\.json$/i, '');
-  if (!document.getElementById('inputContenidoName').value)
-    document.getElementById('inputContenidoName').value = autoFilename;
+  const nameInput = document.getElementById('inputContenidoName');
+  if (!nameInput.value) nameInput.value = autoFilename;
   const reader = new FileReader();
   reader.onload = e => {
     try {
       parsedFileData = JSON.parse(e.target.result);
+      // El título dentro del propio JSON tiene prioridad sobre el nombre
+      // del archivo: así el nombre del contenido siempre corresponde a
+      // lo que dice el JSON, sin que haya que escribirlo a mano.
+      const jsonTitle = extractJsonTitle(parsedFileData);
+      if (jsonTitle) nameInput.value = jsonTitle;
       const det = currentType === 'contenido' ? ` • Tipo detectado: ${TYPE_MAP[detectType(parsedFileData)]?.label || 'Académico'}` : '';
       document.getElementById('fileStatus').textContent = `✅ "${file.name}" listo${det}`;
     } catch {
@@ -1722,6 +1761,11 @@ function validatePaste() {
     fb.textContent = `✅ JSON válido${det}`;
     fb.className = 'paste-feedback ok';
     pasteValid = true;
+    // El nombre del contenido se toma directamente del título que trae
+    // el JSON pegado: no hace falta escribirlo a mano.
+    const jsonTitle = extractJsonTitle(parsed);
+    const nameInput = document.getElementById('inputContenidoName');
+    if (nameInput && jsonTitle) nameInput.value = jsonTitle;
   } catch (err) {
     area.className = 'paste-area error';
     fb.textContent = '❌ JSON inválido: ' + err.message;
