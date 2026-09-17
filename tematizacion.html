@@ -2118,9 +2118,22 @@ function narrateContenidoData(data, detectedType) {
   switch (detectedType) {
     case 'narrativa_historica': {
       if (data.fuente?.titulo) out.push(`Esta narrativa proviene de la fuente "${data.fuente.titulo}"${data.fuente.autor ? ', escrita por ' + data.fuente.autor : ''}.`);
-      (data.arcos || []).forEach(arco => {
-        if (arco.titulo) out.push(`Comienza el arco narrativo "${arco.titulo}".`);
+      const arcos = data.arcos || [];
+
+      // 1) Panorama general: solo los títulos de todos los arcos
+      const titulosArcos = arcos.map(a => a.titulo).filter(Boolean);
+      if (titulosArcos.length) out.push(`Esta narrativa se organiza en ${titulosArcos.length} arco${titulosArcos.length === 1 ? '' : 's'} narrativo${titulosArcos.length === 1 ? '' : 's'}: ${joinNatural(titulosArcos)}.`);
+
+      // 2) Cada arco: su descripción y los títulos de sus secuencias
+      arcos.forEach(arco => {
+        if (arco.titulo) out.push(`Arco narrativo "${arco.titulo}".`);
         if (arco.descripcion) out.push(arco.descripcion);
+        const titulosSecs = (arco.secuencias || []).map(s => s.titulo).filter(Boolean);
+        if (titulosSecs.length) out.push(`Este arco se compone de las siguientes secuencias: ${joinNatural(titulosSecs)}.`);
+      });
+
+      // 3) Cada secuencia con sus eventos y todos sus detalles
+      arcos.forEach(arco => {
         (arco.secuencias || []).forEach(sec => {
           if (sec.titulo) out.push(`En la secuencia "${sec.titulo}":`);
           (sec.eventos || []).forEach(ev => {
@@ -2184,11 +2197,13 @@ function narrateContenidoData(data, detectedType) {
       break;
     }
     case 'academico': {
+      // 1) Apertura fija: título, autor y el eje tesis–antítesis–síntesis
       if (data.metadatos?.titulo) out.push(`Este texto académico se titula "${data.metadatos.titulo}"${data.metadatos.autor ? ', de ' + data.metadatos.autor : ''}.`);
-      if (data.definicion_del_problema?.pregunta_central) out.push(`La pregunta central que aborda es: ${data.definicion_del_problema.pregunta_central}`);
       if (data.estructura_tesis?.tesis?.afirmaciones?.length) out.push(`La tesis sostiene que ${joinNatural(data.estructura_tesis.tesis.afirmaciones)}.`);
       if (data.estructura_tesis?.antitesis?.posiciones_opuestas?.length) out.push(`Frente a esto, se plantean posiciones opuestas: ${joinNatural(data.estructura_tesis.antitesis.posiciones_opuestas)}.`);
       if (data.estructura_tesis?.sintesis?.propuesta_integradora) out.push(`Como síntesis, se propone: ${data.estructura_tesis.sintesis.propuesta_integradora}`);
+      // 2) Resto del contenido
+      if (data.definicion_del_problema?.pregunta_central) out.push(`La pregunta central que aborda es: ${data.definicion_del_problema.pregunta_central}`);
       if (data.diagnostico?.problema_identificado) out.push(`Se identifica el problema de que ${data.diagnostico.problema_identificado}.`);
       if (data.propuesta?.solucion_propuesta) out.push(`Se propone como solución: ${data.propuesta.solucion_propuesta}`);
       break;
